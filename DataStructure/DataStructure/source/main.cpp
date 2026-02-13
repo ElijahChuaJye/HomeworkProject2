@@ -101,7 +101,7 @@ int main() {
 
 			ImGui::SliderInt("Score", &inputScore, 0, 100);
 
-			if (ImGui::Button("Add Players::ID")) {
+			if (ImGui::Button("Add Players")) {
 				Players::ID p;
 				snprintf(p.name, 64, "%s", inputName);
 				p.score = inputScore;

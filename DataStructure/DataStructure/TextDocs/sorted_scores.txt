@@ -6,6 +6,7 @@ Uma 5
 Timothy 100
 Sarah 45
 Rachel 45
+Quinn 72
 Paul 10
 Olivia 95
 Nathan 33
