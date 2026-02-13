@@ -36,11 +36,14 @@
     <ClCompile Include="..\..\imgui\backends\imgui_impl_opengl3.cpp">
       <Filter>Imgui</Filter>
     </ClCompile>
-    <ClCompile Include="main.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\imgui\imgui_demo.cpp">
       <Filter>Imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="source\HelperFunctions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="source\main.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -49,6 +52,9 @@
     </ClInclude>
     <ClInclude Include="..\..\imgui\backends\imgui_impl_glfw.h">
       <Filter>Imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="include\HelperFunctions.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
