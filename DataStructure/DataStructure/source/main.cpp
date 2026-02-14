@@ -64,26 +64,46 @@ int main() {
 		ImGui::NewFrame();
 
 		// --- SORTING LOGIC ---
+		// Only proceed if the sorting state is active
 		if (g_Sort.isSorting) {
+			// Accumulate frame time to control the visual speed of the sort
 			g_Sort.timer += io.DeltaTime;
+
+			// Trigger a single 'step' of the Quicksort once the timer exceeds sortSpeed
 			if (g_Sort.timer >= sortSpeed) {
-				g_Sort.timer = 0.0f;
+				g_Sort.timer = 0.0f; // Reset timer for the next step
+
+				// Check if there are still segments of the array left to partition
 				if (!g_Sort.jobStack.empty()) {
+					// Pop the next range (low to high indices) to be processed from the stack
 					std::pair<int, int> range = g_Sort.jobStack.top();
 					g_Sort.jobStack.pop();
+
 					int low = range.first;
 					int high = range.second;
+
+					// Update state for visualization/highlighting in the UI
 					g_Sort.currentLow = low;
 					g_Sort.currentHigh = high;
+
+					// Perform the Partition: reorders elements around a pivot and returns its final index
 					int pi = QuickSortAlgo::Partition(g_Sort.data, low, high);
 					g_Sort.lastPivotIdx = pi;
+
+					// LOMUTO RECURSION SIMULATION:
+					// If the sub-array to the left of the pivot has more than one element, add it to the stack
 					if (pi - 1 > low) g_Sort.jobStack.push({ low, pi - 1 });
+
+					// If the sub-array to the right of the pivot has more than one element, add it to the stack
 					if (pi + 1 < high) g_Sort.jobStack.push({ pi + 1, high });
 				}
 				else {
+					// No more jobs in the stack = Sorting is complete
 					g_Sort.isSorting = false;
 					g_Sort.currentLow = -1;
 					g_Sort.currentHigh = -1;
+
+					// Sync the sorted data back to the global list and save to disk
 					g_AllIDs = g_Sort.data;
 					FileLoader::SaveToFile(SAVE_PATH, g_AllIDs);
 				}
@@ -157,7 +177,7 @@ int main() {
 				snprintf(label, 128, "%s (%d)", displayList[i].name, displayList[i].score);
 				draw_list->AddText(ImVec2(startX + 10, y + 2), IM_COL32(255, 255, 255, 255), label);
 
-				// 5. CLICK INTERACTION (New Logic)
+				// 5. CLICK INTERACTION
 				// We create an InvisibleButton exactly where the bar is.
 				ImGui::SetCursorScreenPos(ImVec2(startX, y));
 
