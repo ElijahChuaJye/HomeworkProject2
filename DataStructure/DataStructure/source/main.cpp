@@ -145,12 +145,6 @@ int main() {
 
 			ImGui::Separator();
 
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.1f, 1.0f)); // Dark Red
-			if (ImGui::Button("Exit Application", ImVec2(-1, 40))) { // -1 fills the available width
-				glfwSetWindowShouldClose(window, GLFW_TRUE);
-			}
-			ImGui::PopStyleColor();
-
 			ImGui::Text("Simulation Controls");
 			ImGui::SliderFloat("Speed (Sec/Step)", &sortSpeed, 0.05f, 2.0f);
 
