@@ -30,7 +30,9 @@ int main() {
 	const char* glsl_version = "#version 130";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-	GLFWwindow* window = glfwCreateWindow(1300, 800, "Quick Sort Visualizer", nullptr, nullptr);
+	GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+	const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
+	GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "Quick Sort Visualizer", primaryMonitor, nullptr);
 	if (window == nullptr) return 1;
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(1);
@@ -59,6 +61,12 @@ int main() {
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
+
+		//Pressing exit to close
+		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+			glfwSetWindowShouldClose(window, GLFW_TRUE);
+		}
+
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -112,7 +120,16 @@ int main() {
 
 		// --- GUI RENDER ---
 		{
-			
+			const ImGuiViewport* viewport = ImGui::GetMainViewport();
+			ImGui::SetNextWindowPos(viewport->WorkPos);
+			ImGui::SetNextWindowSize(viewport->WorkSize);
+
+			// Use these flags to remove the title bar and prevent moving/resizing
+			ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+				ImGuiWindowFlags_NoMove |
+				ImGuiWindowFlags_NoResize |
+				ImGuiWindowFlags_NoSavedSettings;
+
 			ImGui::Begin("High Score Manager");
 
 			// Input Section
@@ -135,6 +152,13 @@ int main() {
 			if (ImGui::Button("Load from File")) FileLoader::LoadFromFile(LOAD_PATH, g_AllIDs);
 
 			ImGui::Separator();
+
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.1f, 1.0f)); // Dark Red
+			if (ImGui::Button("Exit Application", ImVec2(-1, 40))) { // -1 fills the available width
+				glfwSetWindowShouldClose(window, GLFW_TRUE);
+			}
+			ImGui::PopStyleColor();
+
 			ImGui::Text("Simulation Controls");
 			ImGui::SliderFloat("Speed (Sec/Step)", &sortSpeed, 0.05f, 2.0f);
 
