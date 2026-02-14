@@ -30,9 +30,7 @@ int main() {
 	const char* glsl_version = "#version 130";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-	GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
-	const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
-	GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "Quick Sort Visualizer", primaryMonitor, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1200, 800, "Quick Sort Visual", NULL, NULL);
 	if (window == nullptr) return 1;
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(1);
@@ -123,12 +121,6 @@ int main() {
 			const ImGuiViewport* viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(viewport->WorkPos);
 			ImGui::SetNextWindowSize(viewport->WorkSize);
-
-			// Use these flags to remove the title bar and prevent moving/resizing
-			ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
-				ImGuiWindowFlags_NoMove |
-				ImGuiWindowFlags_NoResize |
-				ImGuiWindowFlags_NoSavedSettings;
 
 			ImGui::Begin("High Score Manager");
 
