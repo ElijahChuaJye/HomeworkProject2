@@ -256,7 +256,7 @@ bool ReceiveFromServer(SOCKET source) {
 			}
 
 			//std::cout automatically prints out all characters when given .data() till null terminator therefore this can work.
-			std::cout << "[" << idx + 1 << actualName.data() << std::endl;
+			std::cout << "[" << idx + 1 << "]" << actualName.data() << std::endl;
 
 		}
 
@@ -297,25 +297,21 @@ int main(int argc, char** argv)
 		std::cout << "Server IP Address: ";
 		if (!std::getline(std::cin, host)) return 0;
 		clean(host);
-		std::cout << std::endl;
 
 		// Get Port Number
 		std::string portNumber;
 		std::cout << "Server Port Number: ";
 		if (!std::getline(std::cin, portNumber)) return 0;
 		clean(portNumber);
-		std::cout << std::endl;
 
 		//The downaloding files to be send to all clients
 		std::cout << "Server UDP Port Number: ";
 		if (!std::getline(std::cin, serverUdpPort)) return 0;
 		clean(serverUdpPort);
-		std::cout << std::endl;
 
 		std::cout << "Client UDP Port Number: ";
 		if (!std::getline(std::cin, clientUdpPort)) return 0;
 		clean(clientUdpPort);
-		std::cout << std::endl;
 
 		//Where to store the download path
 		std::cout << "Path to store downloads: ";
