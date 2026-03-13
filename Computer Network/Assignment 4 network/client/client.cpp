@@ -27,7 +27,6 @@ prior written consent of DigiPen Institute of Technology is prohibited.
  * A simple TCP/IP client application
  ******************************************************************************/
 
-#pragma pack(pop)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -50,10 +49,12 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 #include <io.h>
 #include <thread>
 #include <mutex>
+#include <filesystem>
 
 static std::string serverUdpPort{};  // (b) Server UDP Port
 static std::string clientUdpPort{};  // (c) Client UDP Port
 static std::string downloadPath{};   // (d) Download Path
+static std::string lastRequestedFilename{};
 
 std::mutex _stdoutMutex;
 
@@ -67,6 +68,8 @@ std::mutex _stdoutMutex;
 #define RETURN_CODE_2       2
 #define RETURN_CODE_3       3
 #define RETURN_CODE_4       4
+
+void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t sessionID, uint32_t fileLen, std::string filename);
 
 bool sendAll(SOCKET s, const char* data, int size) {
 	int totalSent = 0;
@@ -155,6 +158,9 @@ bool HandleMessage(SOCKET source, std::string const& msg) {
 			std::string portString = content.substr(colonPos + 1, spacePos - colonPos); //Start positinon follow by length
 			std::string filename = content.substr(spacePos + 1);
 
+			// Save the filename globally so the receiver thread knows what to call the file
+			lastRequestedFilename = filename;
+
 			//Header from protocol.h
 			ReqDownloadHeader request;
 			request.cmd = REQ_DOWNLOAD;	//The command
@@ -206,64 +212,77 @@ bool ReceiveFromServer(SOCKET source) {
 	if (id == REQ_QUIT) {
 		{
 			std::lock_guard<std::mutex> lock{ _stdoutMutex };
-			std::cout << "disconection..." << std::endl;
+			std::cout << "disconnection..." << std::endl;
 		}
 		return false; //To quit
 	}
 	else if (id == RSP_DOWNLOAD) { //To print the messages
 		RspDownloadHeader response;
 		response.cmd = id;
-		
-		//Total for response from server is 14 bytes
-		if (!recvAll(source, (char*)&response.ip, 14)) {
-			return false;
-		}
 
-		unsigned int sessionID = ntohl(response.sessionID);	//
+		// FIX: Read each field individually to prevent Buffer Overrun crashes!
+		if (!recvAll(source, reinterpret_cast<char*>(response.ip), 4)) return false;
+		if (!recvAll(source, reinterpret_cast<char*>(&response.port), 2)) return false;
+		if (!recvAll(source, reinterpret_cast<char*>(&response.sessionID), 4)) return false;
+		if (!recvAll(source, reinterpret_cast<char*>(&response.fileLen), 4)) return false;
+
+		unsigned int sessionID = ntohl(response.sessionID);
 		unsigned int totalSize = ntohl(response.fileLen);
 
-		std::cout << "Download Accepted! Session ID: " << sessionID
-				  << " | Total size: " << totalSize << "bytes" 
-			      << std::endl;
-
-		//TODO: NEED TO USE UDP THREAD
-	}
-	else if (id == RSP_LISTFILES) { //To list the downloadable files
-		RspListHeader header;
-		header.cmd = id;
-
-		//Read 6 bytes, 2 for number of files, 4 for filename length
-		if (!recvAll(source, (char*)&header.numFiles, 6)) { //If do not recive correctly
-			return false;
+		{
+			// Lock cout so it doesn't garble with the main thread
+			std::lock_guard<std::mutex> lock{ _stdoutMutex };
+			std::cout << "Download Accepted! Session ID: " << sessionID
+				<< " | Total size: " << totalSize << " bytes"
+				<< std::endl;
 		}
 
-		uint16_t numFiles = ntohs(header.numFiles);	//Conversion from Big endian to small endian to read proper values
+		// Extract variables for the thread
+		uint32_t serverIpNet;
+		memcpy(&serverIpNet, response.ip, 4);
+		uint16_t serverPortNet = response.port;
+
+		std::thread udpThread(UdpReceiveFileThread,
+			serverIpNet,
+			serverPortNet,
+			sessionID,
+			totalSize,
+			lastRequestedFilename);
+
+		udpThread.detach();
+	}
+	else if (id == RSP_LISTFILES) { //To list the downloadable files
+
+		// FIX: Read the 2-byte and 4-byte fields separately
+		uint16_t numFilesNet;
+		if (!recvAll(source, reinterpret_cast<char*>(&numFilesNet), 2)) return false;
+		uint16_t numFiles = ntohs(numFilesNet);
+
+		uint32_t listLenNet;
+		if (!recvAll(source, reinterpret_cast<char*>(&listLenNet), 4)) return false;
+
+		// Lock cout while we loop so the terminal stays clean
+		std::lock_guard<std::mutex> lock{ _stdoutMutex };
+		std::cout << "------ Available Files ------" << std::endl;
 
 		for (int idx = 0; idx < numFiles; ++idx) {
 			uint32_t nameLen; //4bytes
 
-			//Fixed file name length of 4 bytes
-			if (!recvAll(source, (char*)&nameLen, 4)) { //Reads the next 4 bytes
-				return false;
-			}
-			
+			if (!recvAll(source, reinterpret_cast<char*>(&nameLen), 4)) return false;
+
 			//Converts the big endian from network to CPU little endian 
 			nameLen = ntohl(nameLen);
 
-			std::vector<char> actualName(nameLen + 1, 0);	//+1 for null terminator and initalize the vector value to be 0 first.
-			if (!recvAll(source, actualName.data(), nameLen)) {
-				return false;
-			}
+			std::vector<char> actualName(nameLen + 1, 0);
+			if (!recvAll(source, actualName.data(), nameLen)) return false;
 
-			//std::cout automatically prints out all characters when given .data() till null terminator therefore this can work.
-			std::cout << "[" << idx + 1 << "]" << actualName.data() << std::endl;
-
+			std::cout << "[" << idx + 1 << "] " << actualName.data() << std::endl;
 		}
 
-		std::cout << "------ End of all downloadable files ------" << std::endl;
+		std::cout << "-----------------------------" << std::endl;
 
 	}
-	else{ //If Error
+	else { //If Error
 		std::lock_guard<std::mutex> lock{ _stdoutMutex };
 		std::cout << "==========RECV START==========" << std::endl;
 		std::cout << "File Error" << std::endl;
@@ -456,4 +475,106 @@ int main(int argc, char** argv)
 	// -------------------------------------------------------------------------
 
 	WSACleanup();
+}
+
+
+void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t sessionID, uint32_t fileLen, std::string filename) {
+	// 1. Open the file for writing (binary mode)
+	std::filesystem::path fullPath = std::filesystem::path(downloadPath) / filename;
+	std::ofstream file(fullPath, std::ios::binary | std::ios::trunc);
+	if (!file.is_open()) {
+		std::cerr << "UDP Thread: Could not create file " << fullPath << std::endl;
+		return;
+	}
+
+	// 2. Create and Bind the UDP Socket
+	SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (udpSocket == INVALID_SOCKET) {
+		std::cerr << "UDP Thread: Socket creation failed." << std::endl;
+		return;
+	}
+
+	sockaddr_in clientUdpAddr{};
+	clientUdpAddr.sin_family = AF_INET;
+	clientUdpAddr.sin_addr.s_addr = INADDR_ANY;
+	clientUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(clientUdpPort)));
+
+	if (bind(udpSocket, (sockaddr*)&clientUdpAddr, sizeof(clientUdpAddr)) == SOCKET_ERROR) {
+		std::cerr << "UDP Thread: Bind failed on port " << clientUdpPort << std::endl;
+		closesocket(udpSocket);
+		return;
+	}
+
+	// 3. Receive Loop
+	uint32_t totalBytesReceived = 0;
+	const int MAX_BUFFER = 2048; // Must be larger than our server payload (1024 + header)
+	std::vector<char> recvBuffer(MAX_BUFFER);
+
+	sockaddr_in fromAddr;
+	int fromLen = sizeof(fromAddr);
+
+	std::cout << "UDP Thread: Listening for Session " << sessionID << "..." << std::endl;
+
+	// We use a timeout so the thread doesn't hang forever if the transfer drops completely
+	DWORD timeout = 5000; // 5 seconds
+	setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
+	while (totalBytesReceived < fileLen) {
+		int bytesRead = recvfrom(udpSocket, recvBuffer.data(), MAX_BUFFER, 0,
+			(sockaddr*)&fromAddr, &fromLen);
+
+		if (bytesRead > 0 && bytesRead >= sizeof(UdpDataHeader)) {
+			// We got a packet! Check the header.
+			UdpDataHeader* header = reinterpret_cast<UdpDataHeader*>(recvBuffer.data());
+
+			// Convert to Host Byte Order for logic [cite: 201]
+			uint32_t incomingSession = ntohl(header->sessionID);
+			uint32_t incomingOffset = ntohl(header->fileOffset);
+			uint32_t incomingDataLen = ntohl(header->dataLen);
+
+			// Is this packet meant for this thread?
+			if (incomingSession == sessionID) {
+				// Yes! Write the payload to the file at the exact offset [cite: 300]
+				file.seekp(incomingOffset);
+				file.write(recvBuffer.data() + sizeof(UdpDataHeader), incomingDataLen);
+
+				// If this is new data (not a retransmission we already wrote), update our total
+				if (incomingOffset == totalBytesReceived) {
+					totalBytesReceived += incomingDataLen;
+				}
+
+				// 4. Send the ACK back to the server
+				UdpAckHeader ack;
+				ack.flags = 0x01; // LSB indicates ACK [cite: 306]
+
+				// The ACK number is the next byte we expect [cite: 307]
+				// (e.g. if we just successfully wrote offset 0 + 1024 bytes, we ACK 1024)
+				ack.ackNum = htonl(incomingOffset + incomingDataLen);
+				ack.seqNum = header->fileOffset; // Acknowledge the sequence we just got [cite: 308]
+
+				// Use the Server's IP and Port from the RSP_DOWNLOAD message
+				sockaddr_in serverAddr{};
+				serverAddr.sin_family = AF_INET;
+				serverAddr.sin_addr.s_addr = serverIpNet;
+				serverAddr.sin_port = serverPortNet;
+
+				sendto(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0,
+					(sockaddr*)&serverAddr, sizeof(serverAddr));
+			}
+		}
+		else if (bytesRead == SOCKET_ERROR) {
+			int err = WSAGetLastError();
+			if (err == WSAETIMEDOUT) {
+				std::cout << "UDP Thread: Timeout waiting for packets. Transfer incomplete." << std::endl;
+				break;
+			}
+		}
+	}
+
+	if (totalBytesReceived == fileLen) {
+		std::cout << "UDP Thread: Download complete! Saved to " << fullPath << std::endl;
+	}
+
+	closesocket(udpSocket);
+	file.close();
 }

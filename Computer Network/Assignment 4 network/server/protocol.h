@@ -12,7 +12,7 @@
 *******************************************************************/
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
-
+#include <cstdint>
 #pragma pack(push, 1) // Prevents the compiler from adding "hidden" padding bytes
 
 enum CMDID : unsigned char {
@@ -44,6 +44,21 @@ struct RspListHeader {
     unsigned char cmd;          //1 bytes c
     unsigned short numFiles;   //2 bytes
     unsigned int listLen;      //4 bytes
+};
+
+struct UdpDataHeader {
+    uint32_t sessionID;   // 4 bytes: the downloading session [cite: 298]
+    uint32_t fileLen;     // 4 bytes: the download file length [cite: 299]
+    uint32_t fileOffset;  // 4 bytes: the position in the download file [cite: 300]
+    uint32_t dataLen;     // 4 bytes: length of file data in this message [cite: 302]
+    // The actual File Data bytes will be appended immediately after this header [cite: 303]
+};
+
+// UDP ACK Datagram [cite: 305]
+struct UdpAckHeader {
+    unsigned char flags;  // 1 byte: LSB indicates whether this is an ACK [cite: 306]
+    uint32_t ackNum;      // 4 bytes: acknowledgement for receiving datagram [cite: 307]
+    uint32_t seqNum;      // 4 bytes: sequence number of the datagram carrying file data [cite: 308]
 };
 #pragma pack(pop)
 #endif

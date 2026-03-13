@@ -65,6 +65,9 @@ static std::string portString{};
 static std::string udpPortString{};
 static std::string filesPath{};
 
+
+void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string fullPath, uint32_t sessionID, uint32_t fileLen);
+
 bool sendAll(SOCKET s, const char* data, int size) {
 	int totalSent = 0;
 	while (totalSent < size) {
@@ -460,7 +463,17 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 					std::cout << "Starting transfer for: " << requestedFile
 						<< " (" << std::filesystem::file_size(fullPath) << " bytes)" << std::endl;
 
-					// TODO: This is the trigger to start your UDP sender thread!
+					uint32_t clientIpNet = reqHeader.ip; // Assuming this is directly copyable or use memcpy
+					uint16_t clientPortNet = reqHeader.port;
+
+					// Spin up the detached thread
+					std::thread udpThread(UdpSendFileThread,
+						clientIpNet,
+						clientPortNet,
+						fullPath.string(),
+						globalSessionID - 1, // Since you post-incremented it earlier
+						ntohl(resp.fileLen));
+					udpThread.detach();
 				}
 				else {
 					char errID = DOWNLOAD_ERROR; // DOWNLOAD_ERROR
@@ -499,4 +512,119 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 		shutdown(clientSocket, SD_BOTH);
 		closesocket(clientSocket);
 		return stay;
+}
+
+void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string fullPath, uint32_t sessionID, uint32_t fileLen) {
+	// 1. Open the file in binary mode
+	std::ifstream file(fullPath, std::ios::binary);
+	if (!file.is_open()) {
+		std::cerr << "UDP Thread: Could not open file " << fullPath << std::endl;
+		return;
+	}
+
+	// 2. Create the UDP Socket
+	SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (udpSocket == INVALID_SOCKET) {
+		std::cerr << "UDP Thread: Socket creation failed." << std::endl;
+		return;
+	}
+
+	// Enable SO_REUSEADDR so multiple threads can share the Server UDP Port
+	int optval = 1;
+	setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
+
+	// Bind to the Server's specified UDP port
+	sockaddr_in serverUdpAddr{};
+	serverUdpAddr.sin_family = AF_INET;
+	serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
+	serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
+
+	if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
+		std::cerr << "UDP Thread: Bind failed." << std::endl;
+		closesocket(udpSocket);
+		return;
+	}
+
+	// Target address (The Client)
+	sockaddr_in targetAddr{};
+	targetAddr.sin_family = AF_INET;
+	targetAddr.sin_addr.s_addr = clientIpNet;
+	targetAddr.sin_port = clientPortNet;
+
+	uint32_t currentOffset = 0;
+	const int MAX_DATA_PAYLOAD = 1024; // Safe size to avoid IP fragmentation
+	std::vector<char> fileBuffer(MAX_DATA_PAYLOAD);
+
+	// 3. Stop-and-Wait Transmission Loop
+	while (currentOffset < fileLen) {
+		// Read a chunk from the file
+		file.seekg(currentOffset);
+		file.read(fileBuffer.data(), MAX_DATA_PAYLOAD);
+		uint32_t bytesRead = static_cast<uint32_t>(file.gcount());
+
+		// Construct Header (converting to network byte order) [cite: 201]
+		UdpDataHeader header;
+		header.sessionID = htonl(sessionID);   // 4 bytes [cite: 298]
+		header.fileLen = htonl(fileLen);       // 4 bytes [cite: 299]
+		header.fileOffset = htonl(currentOffset); // 4 bytes [cite: 300]
+		header.dataLen = htonl(bytesRead);     // 4 bytes [cite: 302]
+
+		// Pack header + data
+		std::vector<char> packet;
+		packet.reserve(sizeof(UdpDataHeader) + bytesRead);
+		char* pHeader = reinterpret_cast<char*>(&header);
+		packet.insert(packet.end(), pHeader, pHeader + sizeof(UdpDataHeader));
+		packet.insert(packet.end(), fileBuffer.begin(), fileBuffer.begin() + bytesRead);
+
+		bool ackReceived = false;
+		int retransmissions = 0;
+
+		// 4. Send and Wait for ACK
+		while (!ackReceived) {
+			// Send the datagram
+			sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0,
+				(sockaddr*)&targetAddr, sizeof(targetAddr));
+
+			// Setup select() for a timeout (e.g., 500ms)
+			fd_set readFds;
+			FD_ZERO(&readFds);
+			FD_SET(udpSocket, &readFds);
+
+			timeval timeout;
+			timeout.tv_sec = 0;
+			timeout.tv_usec = 500000; // 500 milliseconds
+
+			int selRes = select(0, &readFds, NULL, NULL, &timeout);
+
+			if (selRes > 0) {
+				// We got a response! Read it.
+				UdpAckHeader ack;
+				sockaddr_in fromAddr;
+				int fromLen = sizeof(fromAddr);
+
+				int recvBytes = recvfrom(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0,
+					(sockaddr*)&fromAddr, &fromLen);
+
+				if (recvBytes == sizeof(UdpAckHeader)) {
+					// Convert back to host byte order to check [cite: 201]
+					uint32_t ackNum = ntohl(ack.ackNum);
+
+					// If the ACK number matches the end of our current chunk, it's successful!
+					if (ackNum == currentOffset + bytesRead) {
+						ackReceived = true;
+						currentOffset += bytesRead; // Advance the offset
+					}
+				}
+			}
+			else {
+				// Timeout occurred. The loop will repeat and retransmit.
+				retransmissions++;
+				// Recommendation: log the retransmission information 
+				std::cout << "Timeout. Retransmitting offset " << currentOffset << " (Attempt " << retransmissions << ")" << std::endl;
+			}
+		}
+	}
+
+	std::cout << "Transfer complete for Session " << sessionID << std::endl;
+	closesocket(udpSocket);
 }
