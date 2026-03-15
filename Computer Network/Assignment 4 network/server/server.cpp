@@ -3,6 +3,7 @@
 /*!
 \file   server.cpp
 \author Elijah Chua
+\co-author Guan Shao Jun
 \par
 \date   21 Feb 2026
 \brief
@@ -29,15 +30,10 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-
 #include "Windows.h"		// Entire Win32 API...
- // #include "winsock2.h"	// ...or Winsock alone
 #include "ws2tcpip.h"		// getaddrinfo()
 #include "protocol.h"
 
-// Tell the Visual Studio linker to include the following library in linking.
-// Alternatively, we could add this file to the linker command-line parameters,
-// but including it in the source code simplifies the configuration.
 #pragma comment(lib, "ws2_32.lib")
 
 #include <iostream>			// cout, cerr
@@ -56,15 +52,10 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 #endif
 #define WINSOCK_SUBVERSION  2
 #define MAX_STR_LEN         1000
-#define RETURN_CODE_1       1
-#define RETURN_CODE_2       2
-#define RETURN_CODE_3       3
-#define RETURN_CODE_4       4
 
 static std::string portString{};
 static std::string udpPortString{};
 static std::string filesPath{};
-
 
 void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string fullPath, uint32_t sessionID, uint32_t fileLen);
 
@@ -72,12 +63,7 @@ bool sendAll(SOCKET s, const char* data, int size) {
 	int totalSent = 0;
 	while (totalSent < size) {
 		int result = send(s, data + totalSent, size - totalSent, 0);
-
-		if (result == SOCKET_ERROR) {
-			// Log the error if necessary
-			return false;
-		}
-
+		if (result == SOCKET_ERROR) return false;
 		totalSent += result;
 	}
 	return true;
@@ -87,12 +73,12 @@ bool receiveAll(SOCKET s, char* buffer, int totalBytes) {
 	int receivedSoFar = 0;
 	while (receivedSoFar < totalBytes) {
 		int res = recv(s, buffer + receivedSoFar, totalBytes - receivedSoFar, 0);
-		if (res <= 0) return false; // Connection closed or error 
+		if (res <= 0) return false;
 		receivedSoFar += res;
 	}
 	return true;
 }
-//This struct is used to keep track of other client's IP Address and their port numbers
+
 struct User {
 	uint32_t ip;
 	uint16_t port;
@@ -109,92 +95,46 @@ void disconnect(SOCKET& listenerSocket);
 
 int main()
 {
-
-	// -------------------------------------------------------------------------
-	// Start up Winsock, asking for version 2.2.
-	//
-	// WSAStartup()
-	// -------------------------------------------------------------------------
-
-	// This object holds the information about the version of Winsock that we
-	// are using, which is not necessarily the version that we requested.
 	WSADATA wsaData{};
+	if (WSAStartup(MAKEWORD(WINSOCK_VERSION, WINSOCK_SUBVERSION), &wsaData) != NO_ERROR) return 1;
 
-	// Initialize Winsock. You must call WSACleanup when you are finished.
-	// As this function uses a reference counter, for each call to WSAStartup,
-	// you must call WSACleanup or suffer memory issues.
-	int errorCode = WSAStartup(MAKEWORD(WINSOCK_VERSION, WINSOCK_SUBVERSION), &wsaData);
-	if (NO_ERROR != errorCode)
-	{
-		std::cerr << "WSAStartup() failed." << std::endl;
-		return errorCode;
-	}
-
-	//Starts the gettign the informations
-	// Get Port Number
-	//Detecting if human or redirected via << returns non zero if is keyboard.console
 	bool isManual = _isatty(_fileno(stdin));
 
-	auto clean = [&](std::string& s) { //Removes \n and \r
+	auto clean = [&](std::string& s) {
 		s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
 		s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
-
-		// Optional: still trim trailing spaces if you want to be safe
 		while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
 			s.pop_back();
 		}
+		};
 
-	};
-	
-	//Server TCP port number, listen on it's IP Address and port and disply received message
 	std::cout << "Server TCP Port Number: ";
 	if (!std::getline(std::cin, portString)) return 0;
 	clean(portString);
 
-	//Getting UDP port number for downloads
 	std::cout << "Server UDP Port Number: ";
 	if (!std::getline(std::cin, udpPortString)) return 0;
 	clean(udpPortString);
 
-	//Location of the download files
 	std::cout << "Files Path: ";
 	if (!std::getline(std::cin, filesPath)) return 0;
 	clean(filesPath);
-	
 
-
-	// -------------------------------------------------------------------------
-	// Resolve own host name into IP addresses (in a singly-linked list).
-	//
-	// getaddrinfo()
-	// -------------------------------------------------------------------------
-
-	// Object hints indicates which protocols to use to fill in the info.
 	addrinfo hints{};
 	SecureZeroMemory(&hints, sizeof(hints));
-	hints.ai_family = AF_INET;			// IPv4
-	// For UDP use SOCK_DGRAM instead of SOCK_STREAM.
-	hints.ai_socktype = SOCK_STREAM;	// Reliable delivery
-	// Could be 0 for autodetect, but reliable delivery over IPv4 is always TCP.
-	hints.ai_protocol = IPPROTO_TCP;	// TCP
-	// Create a passive socket that is suitable for bind() and listen().
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
 
 	addrinfo* info = nullptr;
-	errorCode = getaddrinfo(nullptr, portString.c_str(), &hints, &info);
-	if ((errorCode) || (info == nullptr))
-	{
-		std::cerr << "getaddrinfo() failed." << std::endl;
-		WSACleanup();
-		return errorCode;
-	}
+	if (getaddrinfo(nullptr, portString.c_str(), &hints, &info) != NO_ERROR || info == nullptr) return 1;
 
-	/* PRINT SERVER IP ADDRESS AND PORT NUMBER */
 	char host[MAX_STR_LEN];
 	if (gethostname(host, MAX_STR_LEN) == 0) {
 		addrinfo nameHints{}, * nameResult = nullptr;
-		nameHints.ai_family = AF_INET; // IPv4 only
-		nameHints.ai_socktype = SOCK_STREAM; //Establishment
+		nameHints.ai_family = AF_INET;
+		nameHints.ai_socktype = SOCK_STREAM;
 		if (getaddrinfo(host, NULL, &nameHints, &nameResult) == 0) {
 			if (nameResult != nullptr) {
 				char serverIPAddr[INET_ADDRSTRLEN];
@@ -207,66 +147,21 @@ int main()
 					std::cout << "Server Port Number: " << portString << std::endl;
 				};
 			}
-
 			freeaddrinfo(nameResult);
 		}
 	}
-	
 
+	SOCKET listenerSocket = socket(info->ai_family, info->ai_socktype, info->ai_protocol);
+	if (listenerSocket == INVALID_SOCKET) return 1;
 
-	// -------------------------------------------------------------------------
-	// Create a socket and bind it to own network interface controller.
-	//
-	// socket()
-	// bind()
-	// -------------------------------------------------------------------------
-
-	SOCKET listenerSocket = socket(
-		hints.ai_family,
-		hints.ai_socktype,
-		hints.ai_protocol);
-	if (listenerSocket == INVALID_SOCKET)
-	{
-		std::cerr << "socket() failed." << std::endl;
-		freeaddrinfo(info);
-		WSACleanup();
-		return 1;
-	}
-
-	errorCode = bind(
-		listenerSocket,
-		info->ai_addr,
-		static_cast<int>(info->ai_addrlen));
-	if (errorCode != NO_ERROR)
-	{
-		std::cerr << "bind() failed." << std::endl;
+	if (bind(listenerSocket, info->ai_addr, static_cast<int>(info->ai_addrlen)) != NO_ERROR) {
 		closesocket(listenerSocket);
-		listenerSocket = INVALID_SOCKET;
-	}
-
-	freeaddrinfo(info);
-
-	if (listenerSocket == INVALID_SOCKET)
-	{
-		std::cerr << "bind() failed." << std::endl;
-		WSACleanup();
 		return 2;
 	}
+	freeaddrinfo(info);
 
-
-	// -------------------------------------------------------------------------
-	// Set a socket in a listening mode and accept 1 incoming client.
-	//
-	// listen()
-	// accept()
-	// -------------------------------------------------------------------------
-
-	errorCode = listen(listenerSocket, SOMAXCONN);
-	if (NO_ERROR != errorCode)
-	{
-		std::cerr << "listen() failed." << std::endl;
+	if (listen(listenerSocket, SOMAXCONN) != NO_ERROR) {
 		closesocket(listenerSocket);
-		WSACleanup();
 		return 3;
 	}
 
@@ -282,29 +177,19 @@ int main()
 				listenerSocket,
 				&clientAddress,
 				&clientAddressSize);
-			if (clientSocket == INVALID_SOCKET)
-			{
-				break;
-			}
-			sockaddr_in* pClientAddr = reinterpret_cast<sockaddr_in*>(&clientAddress); //To get the IP Address and port number
+			if (clientSocket == INVALID_SOCKET) break;
+
+			sockaddr_in* pClientAddr = reinterpret_cast<sockaddr_in*>(&clientAddress);
 			char clientIP[INET_ADDRSTRLEN];
 			inet_ntop(AF_INET, &(pClientAddr->sin_addr), clientIP, INET_ADDRSTRLEN);
 			{
 				std::lock_guard<std::mutex> lock{ _stdoutMutex };
-				std::cout << std::endl;
-				std::cout << "Client IP Address: " << clientIP << std::endl;
+				std::cout << std::endl << "Client IP Address: " << clientIP << std::endl;
 				std::cout << "Client Port Number: " << ntohs(pClientAddr->sin_port) << std::endl;
-
 			}
 			tq.produce(clientSocket);
 		}
 	}
-
-	// -------------------------------------------------------------------------
-	// Clean-up after Winsock.
-	//
-	// WSACleanup()
-	// -------------------------------------------------------------------------
 
 	WSACleanup();
 }
@@ -319,45 +204,30 @@ void disconnect(SOCKET& listenerSocket)
 	}
 }
 
-bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that stores information about it
+bool execute(SOCKET clientSocket)
 {
-	//For connectiing client and storing it.
 	sockaddr_in senderAddr;
 	int addrLen = sizeof(senderAddr);
 
-	bool isManual = _isatty(_fileno(stdin));
-	/**
-	 * getpeername
-	 *
-	 * \param SOCKET	:	clientSocket
-	 * \param name(Pointer to store the IP Address and the port of the peer)		:	(sockaddr*)&senderAddr
-	 * \param namelen(Pointer to defines the size of the structure of the name)		:	addrLen
-	 * \return true for success and 0 for failure
-	 */
-	int peer = getpeername(clientSocket, (sockaddr*)&senderAddr, &addrLen); //Used to identify who send
-
-	if (peer == SOCKET_ERROR) {
-		std::cout << "Cannot find sender!" << std::endl;
+	if (getpeername(clientSocket, (sockaddr*)&senderAddr, &addrLen) == SOCKET_ERROR) {
+		std::cerr << "Cannot find sender! Aborting client session." << std::endl;
+		closesocket(clientSocket);
+		return true;
 	}
-	//This creates a unique ID for mutex
+
 	User myKey{ senderAddr.sin_addr.s_addr, senderAddr.sin_port };
 	{
 		std::lock_guard<std::mutex> lock{ mutexRegisteration };
 		userRegisteration[myKey] = clientSocket;
-
 	}
 
-	constexpr size_t BUFFER_SIZE = 10000;
-	bool stay = true;
-
 	unsigned char rawID = 0;
-	unsigned char command{};
 
 	auto recvAll = [&](char* target, int size) -> bool {
 		int totalReceived = 0;
 		while (totalReceived < size) {
 			int res = recv(clientSocket, target + totalReceived, size - totalReceived, 0);
-			if (res <= 0) return false; // Connection closed or error 
+			if (res <= 0) return false;
 			totalReceived += res;
 		}
 		return true;
@@ -365,21 +235,9 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 
 	while (true)
 	{
-		const int bytesReceived = recv(clientSocket, reinterpret_cast<char*>(&rawID), 1, 0);
-
-		if (bytesReceived == SOCKET_ERROR)
-		{
-			std::cerr << "recv() failed." << std::endl;
-			break;
-		}
-		if (bytesReceived == 0)
-		{
-			std::cerr << "Graceful shutdown." << std::endl;
-			break;
-		}
-
-		//If everything is correct. Check command and act accordingly
-		if (bytesReceived > 0) {
+		try {
+			const int bytesReceived = recv(clientSocket, reinterpret_cast<char*>(&rawID), 1, 0);
+			if (bytesReceived <= 0) break;
 
 			CMDID ID = static_cast<CMDID>(rawID);
 
@@ -387,52 +245,64 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 				std::vector<std::string> fileNames;
 				uint32_t totalListLen = 0;
 
-				if (std::filesystem::exists(filesPath) && std::filesystem::is_directory(filesPath)) {
-					for (const auto& entry : std::filesystem::directory_iterator(filesPath)) {
-						if (entry.is_regular_file()) {
-							std::string name = entry.path().filename().string();
+				std::error_code ec;
+				if (std::filesystem::exists(filesPath, ec) && std::filesystem::is_directory(filesPath, ec)) {
+					auto it = std::filesystem::directory_iterator(filesPath, ec);
+					auto end = std::filesystem::directory_iterator();
+					while (it != end && !ec) {
+						if (it->is_regular_file(ec)) {
+							std::string name = it->path().filename().string();
 							fileNames.push_back(name);
-							totalListLen += (4 + static_cast<uint32_t>(name.length())); // 4 bytes for Nlen + string
+							totalListLen += (4 + static_cast<uint32_t>(name.length()));
 						}
+						it.increment(ec);
 					}
 				}
 
 				std::vector<char> fullPacket;
-				fullPacket.reserve(7 + totalListLen); // 7 bytes for the fixed header
+				fullPacket.reserve(7 + totalListLen);
 
-				RspListHeader header;
-				header.cmd = RSP_LISTFILES; // 0x05
-				header.numFiles = htons(static_cast<uint16_t>(fileNames.size()));
-				header.listLen = htonl(totalListLen);
+				fullPacket.push_back(static_cast<char>(RSP_LISTFILES));
 
-				char* sendHeader = reinterpret_cast<char*>(&header);
-				fullPacket.insert(fullPacket.end(), sendHeader, sendHeader + sizeof(header));
+				uint16_t numNet = htons(static_cast<uint16_t>(fileNames.size()));
+				char* pNum = reinterpret_cast<char*>(&numNet);
+				fullPacket.insert(fullPacket.end(), pNum, pNum + 2);
+
+				uint32_t lenNet = htonl(totalListLen);
+				char* pLen = reinterpret_cast<char*>(&lenNet);
+				fullPacket.insert(fullPacket.end(), pLen, pLen + 4);
 
 				for (const auto& name : fileNames) {
 					uint32_t nLen = htonl(static_cast<uint32_t>(name.length()));
-					char* pLen = reinterpret_cast<char*>(&nLen);
-					fullPacket.insert(fullPacket.end(), pLen, pLen + 4);
+					char* pnLen = reinterpret_cast<char*>(&nLen);
+					fullPacket.insert(fullPacket.end(), pnLen, pnLen + 4);
 
-					fullPacket.insert(fullPacket.end(), name.begin(), name.end());
+					// FIX: C-string copy to completely bypass MSVC Debug Iterator assertions!
+					const char* nameStr = name.c_str();
+					fullPacket.insert(fullPacket.end(), nameStr, nameStr + name.length());
 				}
 
-				//Sending it all at once
 				if (!sendAll(clientSocket, fullPacket.data(), static_cast<int>(fullPacket.size()))) {
-					return false;
+					break;
 				}
 			}
 			else if (ID == REQ_DOWNLOAD) {
-				#pragma pack(push, 1)
-				struct {
-					uint32_t ip;
-					uint16_t port;
-					uint32_t nameLen;
-				} reqHeader;
-				#pragma pack(pop)
+				uint32_t ipNet;
+				if (!recvAll((char*)&ipNet, 4)) break;
 
-				if (!recvAll((char*)&reqHeader, 10)) break;
+				uint16_t portNet;
+				if (!recvAll((char*)&portNet, 2)) break;
 
-				uint32_t nameLen = ntohl(reqHeader.nameLen);
+				uint32_t nameLenNet;
+				if (!recvAll((char*)&nameLenNet, 4)) break;
+
+				uint32_t nameLen = ntohl(nameLenNet);
+
+				// Safety net to prevent std::bad_alloc from crashing the server
+				if (nameLen > 10000) {
+					std::cerr << "Mangled packet detected! Dropping download request." << std::endl;
+					break;
+				}
 
 				std::vector<char> nameBuf(nameLen + 1, 0);
 				if (!recvAll(nameBuf.data(), nameLen)) break;
@@ -440,43 +310,43 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 
 				std::filesystem::path fullPath = std::filesystem::path(filesPath) / requestedFile;
 
-				if (std::filesystem::exists(fullPath) && std::filesystem::is_regular_file(fullPath)) {
-					RspDownloadHeader resp;
-					resp.cmd = RSP_DOWNLOAD; // 0x03
+				std::error_code ec;
+				if (std::filesystem::exists(fullPath, ec) && std::filesystem::is_regular_file(fullPath, ec)) {
 
-					// Use Server's IP and the Global UDP Port you collected in main(). SO they know who to reply to
-					memcpy(resp.ip, &senderAddr.sin_addr.s_addr, 4);
+					std::vector<char> respPacket;
+					respPacket.reserve(15);
+					respPacket.push_back(static_cast<char>(RSP_DOWNLOAD));
 
-					//Use the UDP port from server 
-					resp.port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
+					respPacket.insert(respPacket.end(), reinterpret_cast<char*>(&senderAddr.sin_addr.s_addr), reinterpret_cast<char*>(&senderAddr.sin_addr.s_addr) + 4);
 
-					// Generate a unique Session ID for this transfer
+					uint16_t outPortNet = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
+					char* pOutPort = reinterpret_cast<char*>(&outPortNet);
+					respPacket.insert(respPacket.end(), pOutPort, pOutPort + 2);
+
 					static uint32_t globalSessionID = 7000;
-					resp.sessionID = htonl(globalSessionID++);
+					uint32_t sessNet = htonl(globalSessionID++);
+					char* pSess = reinterpret_cast<char*>(&sessNet);
+					respPacket.insert(respPacket.end(), pSess, pSess + 4);
 
-					// Get the actual file size from the disk
-					resp.fileLen = htonl(static_cast<uint32_t>(std::filesystem::file_size(fullPath)));
+					uint32_t fileLenNet = htonl(static_cast<uint32_t>(std::filesystem::file_size(fullPath, ec)));
+					char* pFileLen = reinterpret_cast<char*>(&fileLenNet);
+					respPacket.insert(respPacket.end(), pFileLen, pFileLen + 4);
 
-					// B. Send the 15-byte header all at once
-					sendAll(clientSocket, (char*)&resp, sizeof(resp));
+					sendAll(clientSocket, respPacket.data(), static_cast<int>(respPacket.size()));
 
 					std::cout << "Starting transfer for: " << requestedFile
-						<< " (" << std::filesystem::file_size(fullPath) << " bytes)" << std::endl;
+						<< " (" << std::filesystem::file_size(fullPath, ec) << " bytes)" << std::endl;
 
-					uint32_t clientIpNet = reqHeader.ip; // Assuming this is directly copyable or use memcpy
-					uint16_t clientPortNet = reqHeader.port;
-
-					// Spin up the detached thread
 					std::thread udpThread(UdpSendFileThread,
-						clientIpNet,
-						clientPortNet,
+						ipNet,
+						portNet,
 						fullPath.string(),
-						globalSessionID - 1, // Since you post-incremented it earlier
-						ntohl(resp.fileLen));
+						globalSessionID - 1,
+						ntohl(fileLenNet));
 					udpThread.detach();
 				}
 				else {
-					char errID = DOWNLOAD_ERROR; // DOWNLOAD_ERROR
+					char errID = DOWNLOAD_ERROR;
 					sendAll(clientSocket, &errID, 1);
 				}
 			}
@@ -486,151 +356,142 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 					std::lock_guard<std::mutex> lock{ _stdoutMutex };
 					std::cout << "Graceful Shutdown" << std::endl;
 				}
-
-				{
-					std::lock_guard<std::mutex> lock{ mutexRegisteration };
-					userRegisteration.erase(myKey);
-				}
 				sendAll(clientSocket, (char*)&error, 1);
-
 				break;
 			}
 		}
-
+		catch (const std::exception& e) {
+			// FIX: Catch any underlying STL exceptions to prevent thread aborts!
+			std::cerr << "\n[CRITICAL SERVER EXCEPTION] " << e.what() << ". Terminating thread.\n";
+			break;
+		}
+		catch (...) {
+			std::cerr << "\n[CRITICAL SERVER EXCEPTION] Unknown failure. Terminating thread.\n";
+			break;
+		}
 	}
 
-	// -------------------------------------------------------------------------
-		// Shut down and close sockets.
-		//
-		// shutdown()
-		// closesocket()
-		// -------------------------------------------------------------------------
+	{
+		std::lock_guard<std::mutex> lock{ mutexRegisteration };
+		userRegisteration.erase(myKey);
+	}
 
-		{
-			std::lock_guard<std::mutex> lock{ mutexRegisteration };
-			userRegisteration.erase(myKey);
-		}
-
-		shutdown(clientSocket, SD_BOTH);
-		closesocket(clientSocket);
-		return stay;
+	shutdown(clientSocket, SD_BOTH);
+	closesocket(clientSocket);
+	return true;
 }
 
+struct PacketSlot {
+	uint32_t offset;
+	uint32_t dataLen;
+	std::vector<char> buffer;
+	ULONGLONG sendTime;
+	bool acked;
+};
+
 void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string fullPath, uint32_t sessionID, uint32_t fileLen) {
-	// 1. Open the file in binary mode
 	std::ifstream file(fullPath, std::ios::binary);
-	if (!file.is_open()) {
-		std::cerr << "UDP Thread: Could not open file " << fullPath << std::endl;
-		return;
-	}
+	if (!file.is_open()) return;
 
-	// 2. Create the UDP Socket
 	SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (udpSocket == INVALID_SOCKET) {
-		std::cerr << "UDP Thread: Socket creation failed." << std::endl;
+	if (udpSocket == INVALID_SOCKET) return;
+
+	int optval = 1;
+	setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
+
+	sockaddr_in serverUdpAddr{};
+	serverUdpAddr.sin_family = AF_INET;
+	serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
+	serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
+
+	if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
+		std::cerr << "UDP Thread: Bind failed." << std::endl;
+		closesocket(udpSocket);
 		return;
 	}
 
-	//// Enable SO_REUSEADDR so multiple threads can share the Server UDP Port
-	//int optval = 1;
-	//setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
-
-	//// Bind to the Server's specified UDP port
-	//sockaddr_in serverUdpAddr{};
-	//serverUdpAddr.sin_family = AF_INET;
-	//serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
-	//serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
-
-	//if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
-	//	std::cerr << "UDP Thread: Bind failed." << std::endl;
-	//	closesocket(udpSocket);
-	//	return;
-	//}
-
-	// Target address (The Client)
 	sockaddr_in targetAddr{};
 	targetAddr.sin_family = AF_INET;
 	targetAddr.sin_addr.s_addr = clientIpNet;
 	targetAddr.sin_port = clientPortNet;
 
-	uint32_t currentOffset = 0;
-	const int MAX_DATA_PAYLOAD = 1024; // Safe size to avoid IP fragmentation
-	std::vector<char> fileBuffer(MAX_DATA_PAYLOAD);
+	const int MAX_DATA_PAYLOAD = 1024;
+	const size_t WINDOW_SIZE = 10;
 
-	// 3. Stop-and-Wait Transmission Loop
-	while (currentOffset < fileLen) {
-		// Read a chunk from the file
-		file.seekg(currentOffset);
-		file.read(fileBuffer.data(), MAX_DATA_PAYLOAD);
-		uint32_t bytesRead = static_cast<uint32_t>(file.gcount());
+	uint32_t baseOffset = 0;
+	uint32_t nextOffset = 0;
+	int timeoutCounter = 0;
 
-		// Construct Header (converting to network byte order) 
-		UdpDataHeader header;
-		header.sessionID = htonl(sessionID);   // 4 bytes 
-		header.fileLen = htonl(fileLen);       // 4 bytes 
-		header.fileOffset = htonl(currentOffset); // 4 bytes 
-		header.dataLen = htonl(bytesRead);     // 4 bytes 
+	std::map<uint32_t, PacketSlot> window;
 
-		// Pack header + data
-		std::vector<char> packet;
-		packet.reserve(sizeof(UdpDataHeader) + bytesRead);
-		char* pHeader = reinterpret_cast<char*>(&header);
-		packet.insert(packet.end(), pHeader, pHeader + sizeof(UdpDataHeader));
-		packet.insert(packet.end(), fileBuffer.begin(), fileBuffer.begin() + bytesRead);
+	while (baseOffset < fileLen) {
+		while (window.size() < WINDOW_SIZE && nextOffset < fileLen) {
+			file.seekg(nextOffset);
+			std::vector<char> fileBuffer(MAX_DATA_PAYLOAD);
+			file.read(fileBuffer.data(), MAX_DATA_PAYLOAD);
+			uint32_t bytesRead = static_cast<uint32_t>(file.gcount());
 
-		bool ackReceived = false;
-		int retransmissions = 0;
-		const int MAX_RETRIES = 20; //Stops after 20 attempts at it
-		// 4. Send and Wait for ACK
-		while (!ackReceived) {
-			// Send the datagram
-			sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0,
-				(sockaddr*)&targetAddr, sizeof(targetAddr));
+			if (bytesRead == 0) break;
 
-			// Setup select() for a timeout (e.g., 500ms)
-			fd_set readFds;
-			FD_ZERO(&readFds);
-			FD_SET(udpSocket, &readFds);
+			UdpDataHeader header;
+			header.sessionID = htonl(sessionID);
+			header.fileLen = htonl(fileLen);
+			header.fileOffset = htonl(nextOffset);
+			header.dataLen = htonl(bytesRead);
 
-			timeval timeout;
-			timeout.tv_sec = 0;
-			timeout.tv_usec = 500000; // 500 milliseconds
+			std::vector<char> packet;
+			packet.reserve(sizeof(UdpDataHeader) + bytesRead);
+			char* pHeader = reinterpret_cast<char*>(&header);
+			packet.insert(packet.end(), pHeader, pHeader + sizeof(UdpDataHeader));
+			packet.insert(packet.end(), fileBuffer.begin(), fileBuffer.begin() + bytesRead);
 
-			int selRes = select(0, &readFds, NULL, NULL, &timeout);
+			window[nextOffset] = { nextOffset, bytesRead, packet, GetTickCount64(), false };
 
-			if (selRes > 0) {
-				// We got a response! Read it.
-				UdpAckHeader ack;
-				sockaddr_in fromAddr;
-				int fromLen = sizeof(fromAddr);
+			sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
+			nextOffset += bytesRead;
+		}
 
-				int recvBytes = recvfrom(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0,
-					(sockaddr*)&fromAddr, &fromLen);
+		fd_set readFds;
+		FD_ZERO(&readFds);
+		FD_SET(udpSocket, &readFds);
+		timeval timeout;
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 10000;
 
-				if (recvBytes == sizeof(UdpAckHeader)) {
-					// Convert back to host byte order to check
-					uint32_t ackNum = ntohl(ack.ackNum);
+		int selRes = select(0, &readFds, NULL, NULL, &timeout);
+		if (selRes > 0) {
+			timeoutCounter = 0;
 
-					// If the ACK number matches the end of our current chunk, it's successful
-					if (ackNum == currentOffset + bytesRead) {
-						ackReceived = true;
-						currentOffset += bytesRead; // Advance the offset
-					}
+			UdpAckHeader ack;
+			sockaddr_in fromAddr;
+			int fromLen = sizeof(fromAddr);
+			int recvBytes = recvfrom(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0, (sockaddr*)&fromAddr, &fromLen);
+
+			if (recvBytes == sizeof(UdpAckHeader)) {
+				uint32_t ackedOffset = ntohl(ack.seqNum);
+				if (window.find(ackedOffset) != window.end()) {
+					window[ackedOffset].acked = true;
 				}
 			}
-			else {
-				// Timeout occurred. The loop will repeat and retransmit.
-				retransmissions++;
-				// Recommendation: log the retransmission information
-				if (retransmissions == MAX_RETRIES - 1) {
-					std::cout << "Final attempt at retransmission" << std::endl;
-				}
-					std::cout << "Timeout. Retransmitting offset " << currentOffset << " (Attempt " << retransmissions << ")" << std::endl;
-				if (retransmissions >= MAX_RETRIES) {
-					std::cerr << "UDP THREAD: Max retransmissions. Error. Aborting transfer." << std::endl;
-					closesocket(udpSocket);
-					return; // Kill the thread
-				}
+		}
+		else {
+			timeoutCounter++;
+			if (timeoutCounter > 1000) {
+				std::cerr << "UDP Thread: Client disconnected or max timeouts reached. Aborting." << std::endl;
+				break;
+			}
+		}
+
+		while (!window.empty() && window.begin()->second.acked) {
+			baseOffset += window.begin()->second.dataLen;
+			window.erase(window.begin());
+		}
+
+		ULONGLONG currentTime = GetTickCount64();
+		for (auto& pair : window) {
+			if (!pair.second.acked && (currentTime - pair.second.sendTime > 500)) {
+				sendto(udpSocket, pair.second.buffer.data(), static_cast<int>(pair.second.buffer.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
+				pair.second.sendTime = currentTime;
 			}
 		}
 	}

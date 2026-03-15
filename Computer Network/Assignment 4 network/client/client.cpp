@@ -3,6 +3,7 @@
 /*!
 \file   client.cpp
 \author Elijah Chua
+\co-author Guan Shao Jun
 \par
 \date   21 Feb 2026
 \brief
@@ -22,11 +23,6 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 /* End Header
 *******************************************************************/
 
-
-/*******************************************************************************
- * A simple TCP/IP client application
- ******************************************************************************/
-
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -36,9 +32,6 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 #include "ws2tcpip.h"		// getaddrinfo()
 #include "protocol.h"
 
- // Tell the Visual Studio linker to include the following library in linking.
- // Alternatively, we could add this file to the linker command-line parameters,
- // but including it in the source code simplifies the configuration.
 #pragma comment(lib, "ws2_32.lib")
 
 #include <iostream>			// cout, cerr
@@ -50,10 +43,11 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 #include <thread>
 #include <mutex>
 #include <filesystem>
+#include <set>
 
-static std::string serverUdpPort{};  // (b) Server UDP Port
-static std::string clientUdpPort{};  // (c) Client UDP Port
-static std::string downloadPath{};   // (d) Download Path
+static std::string serverUdpPort{};
+static std::string clientUdpPort{};
+static std::string downloadPath{};
 static std::string lastRequestedFilename{};
 
 std::mutex _stdoutMutex;
@@ -64,10 +58,6 @@ std::mutex _stdoutMutex;
 
 #define WINSOCK_SUBVERSION  2
 #define MAX_STR_LEN         1000
-#define RETURN_CODE_1       1
-#define RETURN_CODE_2       2
-#define RETURN_CODE_3       3
-#define RETURN_CODE_4       4
 
 void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t sessionID, uint32_t fileLen, std::string filename);
 
@@ -75,12 +65,9 @@ bool sendAll(SOCKET s, const char* data, int size) {
 	int totalSent = 0;
 	while (totalSent < size) {
 		int result = send(s, data + totalSent, size - totalSent, 0);
-
 		if (result == SOCKET_ERROR) {
-			// Log the error if necessary
 			return false;
 		}
-
 		totalSent += result;
 	}
 	return true;
@@ -90,99 +77,59 @@ bool recvAll(SOCKET s, char* buffer, int size) {
 	int received = 0;
 	while (received < size) {
 		int res = recv(s, buffer + received, size - received, 0);
-		if (res <= 0) return false; // Server closed or error
+		if (res <= 0) return false;
 		received += res;
 	}
 	return true;
 }
 
-std::vector<char> HexTranslation(const std::string& hex) {
-	std::vector<char> bytes;
-	std::string noSpaceHex{};
-	
-	//Why iterate by 2? Since we are dealing with hexadecimals,
-	//hexadecimals comes in a pair
-	for (char c : hex) {
-		if (std::isxdigit(static_cast<unsigned char>(c)) && 
-			!std::isspace(static_cast<unsigned char>(c)) && 
-			c != ':') {
-			noSpaceHex += c;
-		}
-	}
-
-	for (size_t idx = 0 ; idx + 1 < noSpaceHex.length() ; idx += 2) {
-		try {
-			//std::stoul converts tehs tring into an unsigned long integer based 16(hexadecimal)
-			//Using static_cast to convert it to words
-			//Since we are dealing with hexadecimal, always takes 2 char,stopping pooint, and the specific based we are chaing to. 10 is the normal decimal.
-			std::string byteString = noSpaceHex.substr(idx, 2);
-			unsigned long byteValue = std::stoul(byteString, nullptr, 16);
-			bytes.push_back(static_cast<char>(byteValue));
-		}
-		catch (...) { //If is invalid characters then berak it
-			break;
-		}
-	}
-
-	return bytes;
-}
-
 bool HandleMessage(SOCKET source, std::string const& msg) {
-	if (msg == "/q") { //Checking for quit
+	if (msg == "/q") {
 		char id = static_cast<char>(REQ_QUIT);
-		//Params for send:
-		//socket, data pointer, the size, special instructions
 		{
 			std::lock_guard<std::mutex> lock{ _stdoutMutex };
-			std::cout << "disconection..." << std::endl;
+			std::cout << "disconnection..." << std::endl;
 		}
 		sendAll(source, &id, 1);
-		return false; //stops loop
+		return false;
 	}
-	else if (msg.length() >= 2 && msg.substr(0, 2) == "/l") {	//Requesting to list files
+	else if (msg.length() >= 2 && msg.substr(0, 2) == "/l") {
 		char id = static_cast<char>(REQ_LISTFILES);
 		if (!sendAll(source, &id, 1)) {
 			return false;
 		}
 		return true;
 	}
-
-	else if (msg.length() >= 2 && msg.substr(0, 2) == "/d") {	//Requesting to downalod files
-		//Expected format: /d 192.168.1.3:9010 filelist.cpp
+	else if (msg.length() >= 3 && msg.substr(0, 2) == "/d") {
 		std::string content = msg.substr(3);
 		size_t colonPos = content.find(':');
 		size_t spacePos = content.find(' ');
 
-		if (colonPos != std::string::npos && spacePos != std::string::npos) { //Meaning correct format
+		if (colonPos != std::string::npos && spacePos != std::string::npos && spacePos > colonPos) {
 			std::string ipString = content.substr(0, colonPos);
-			std::string portString = content.substr(colonPos + 1, spacePos - colonPos); //Start positinon follow by length
+			std::string portString = content.substr(colonPos + 1, spacePos - colonPos - 1);
 			std::string filename = content.substr(spacePos + 1);
 
-			// Save the filename globally so the receiver thread knows what to call the file
 			lastRequestedFilename = filename;
 
-			//Header from protocol.h
-			ReqDownloadHeader request;
-			request.cmd = REQ_DOWNLOAD;	//The command
-
-			//Fill the ipadress with inet_pton. From CPU small endian to internet's big endian
-			inet_pton(AF_INET, ipString.c_str(), &request.ip);	//The IP Adress
-
-			//htons for 2 bytes
-			request.port = htons(static_cast<unsigned short>(std::stoi(portString)));	//Port number
-
-			//htonl for 4
-			request.nameLen = htonl(static_cast<unsigned int>(filename.length()));		//Name length
-
-			//Packing everything together
 			std::vector<char> fullPacket;
-			fullPacket.reserve(sizeof(request) + filename.length());
+			fullPacket.reserve(11 + filename.length());
 
-			//Set up the 11-bytes header and push into the packet first
-			char* header = reinterpret_cast<char*>(&request);
-			fullPacket.insert(fullPacket.end(), header, header + sizeof(request));
+			fullPacket.push_back(static_cast<char>(REQ_DOWNLOAD));
 
-			//Insertion of the filename string
+			uint32_t ipNet;
+			inet_pton(AF_INET, ipString.c_str(), &ipNet);
+			char* pIp = reinterpret_cast<char*>(&ipNet);
+			fullPacket.insert(fullPacket.end(), pIp, pIp + 4);
+
+			uint16_t portNet = htons(static_cast<unsigned short>(std::stoi(portString)));
+			char* pPort = reinterpret_cast<char*>(&portNet);
+			fullPacket.insert(fullPacket.end(), pPort, pPort + 2);
+
+			uint32_t nameLenNet = htonl(static_cast<unsigned int>(filename.length()));
+			char* pNameLen = reinterpret_cast<char*>(&nameLenNet);
+			fullPacket.insert(fullPacket.end(), pNameLen, pNameLen + 4);
+
 			fullPacket.insert(fullPacket.end(), filename.begin(), filename.end());
 
 			if (!sendAll(source, fullPacket.data(), static_cast<int>(fullPacket.size()))) {
@@ -190,22 +137,17 @@ bool HandleMessage(SOCKET source, std::string const& msg) {
 			}
 		}
 	}
-		else {
-		std::vector<char> emptyPacket;
-	
-		sendAll(source, emptyPacket.data(), static_cast<int>(emptyPacket.size()));
-		return false;
+	else {
+		std::lock_guard<std::mutex> lock{ _stdoutMutex };
+		std::cout << "Invalid command! Use /l to list files, or /d <IP>:<UDP_Port> <filename>" << std::endl;
+		return true;
 	}
-
-		
-	
-
 	return true;
 }
 
 bool ReceiveFromServer(SOCKET source) {
 	char id;
-	if (recv(source, &id, 1, 0) <= 0) { //Checking if socket pipe is broken
+	if (recv(source, &id, 1, 0) <= 0) {
 		return false;
 	}
 
@@ -214,33 +156,30 @@ bool ReceiveFromServer(SOCKET source) {
 			std::lock_guard<std::mutex> lock{ _stdoutMutex };
 			std::cout << "disconnection..." << std::endl;
 		}
-		return false; //To quit
+		return false;
 	}
-	else if (id == RSP_DOWNLOAD) { //To print the messages
-		RspDownloadHeader response;
-		response.cmd = id;
+	else if (id == RSP_DOWNLOAD) {
+		uint32_t serverIpNet;
+		if (!recvAll(source, reinterpret_cast<char*>(&serverIpNet), 4)) return false;
 
-		// FIX: Read each field individually to prevent Buffer Overrun crashes!
-		if (!recvAll(source, reinterpret_cast<char*>(response.ip), 4)) return false;
-		if (!recvAll(source, reinterpret_cast<char*>(&response.port), 2)) return false;
-		if (!recvAll(source, reinterpret_cast<char*>(&response.sessionID), 4)) return false;
-		if (!recvAll(source, reinterpret_cast<char*>(&response.fileLen), 4)) return false;
+		uint16_t serverPortNet;
+		if (!recvAll(source, reinterpret_cast<char*>(&serverPortNet), 2)) return false;
 
-		unsigned int sessionID = ntohl(response.sessionID);
-		unsigned int totalSize = ntohl(response.fileLen);
+		uint32_t sessionIDNet;
+		if (!recvAll(source, reinterpret_cast<char*>(&sessionIDNet), 4)) return false;
+
+		uint32_t fileLenNet;
+		if (!recvAll(source, reinterpret_cast<char*>(&fileLenNet), 4)) return false;
+
+		unsigned int sessionID = ntohl(sessionIDNet);
+		unsigned int totalSize = ntohl(fileLenNet);
 
 		{
-			// Lock cout so it doesn't garble with the main thread
 			std::lock_guard<std::mutex> lock{ _stdoutMutex };
 			std::cout << "Download Accepted! Session ID: " << sessionID
 				<< " | Total size: " << totalSize << " bytes"
 				<< std::endl;
 		}
-
-		// Extract variables for the thread
-		uint32_t serverIpNet;
-		memcpy(&serverIpNet, response.ip, 4);
-		uint16_t serverPortNet = response.port;
 
 		std::thread udpThread(UdpReceiveFileThread,
 			serverIpNet,
@@ -251,9 +190,7 @@ bool ReceiveFromServer(SOCKET source) {
 
 		udpThread.detach();
 	}
-	else if (id == RSP_LISTFILES) { //To list the downloadable files
-
-		// FIX: Read the 2-byte and 4-byte fields separately
+	else if (id == RSP_LISTFILES) {
 		uint16_t numFilesNet;
 		if (!recvAll(source, reinterpret_cast<char*>(&numFilesNet), 2)) return false;
 		uint16_t numFiles = ntohs(numFilesNet);
@@ -261,28 +198,28 @@ bool ReceiveFromServer(SOCKET source) {
 		uint32_t listLenNet;
 		if (!recvAll(source, reinterpret_cast<char*>(&listLenNet), 4)) return false;
 
-		// Lock cout while we loop so the terminal stays clean
 		std::lock_guard<std::mutex> lock{ _stdoutMutex };
 		std::cout << "------ Available Files ------" << std::endl;
 
 		for (int idx = 0; idx < numFiles; ++idx) {
-			uint32_t nameLen; //4bytes
+			uint32_t nameLen;
 
 			if (!recvAll(source, reinterpret_cast<char*>(&nameLen), 4)) return false;
-
-			//Converts the big endian from network to CPU little endian 
 			nameLen = ntohl(nameLen);
+
+			if (nameLen > 10000) {
+				std::cerr << "\n[CRITICAL ERROR] Network Packet Padding Desync Detected! Stream Corrupted." << std::endl;
+				return false;
+			}
 
 			std::vector<char> actualName(nameLen + 1, 0);
 			if (!recvAll(source, actualName.data(), nameLen)) return false;
 
 			std::cout << "[" << idx + 1 << "] " << actualName.data() << std::endl;
 		}
-
 		std::cout << "-----------------------------" << std::endl;
-
 	}
-	else { //If Error
+	else {
 		std::lock_guard<std::mutex> lock{ _stdoutMutex };
 		std::cout << "==========RECV START==========" << std::endl;
 		std::cout << "File Error" << std::endl;
@@ -293,206 +230,97 @@ bool ReceiveFromServer(SOCKET source) {
 	return true;
 }
 
-// This program requires one extra command-line parameter: a server hostname.
 int main(int argc, char** argv)
 {
-	constexpr uint16_t port = 2048;
-
-	// Get IP Address
 	std::string host{};
 	std::string portString{};
-	
-	std::vector<std::string> messages{};
+
 	bool isManual = _isatty(_fileno(stdin));
 
-	auto clean = [&](std::string& s) { //Removes \n and \r
+	auto clean = [&](std::string& s) {
 		s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
 		s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
 		while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
 			s.pop_back();
 		}
-	};
-	
-		std::cout << "Server IP Address: ";
-		if (!std::getline(std::cin, host)) return 0;
-		clean(host);
+		};
 
-		// Get Port Number
-		std::string portNumber;
-		std::cout << "Server Port Number: ";
-		if (!std::getline(std::cin, portNumber)) return 0;
-		clean(portNumber);
+	std::cout << "Server IP Address: ";
+	if (!std::getline(std::cin, host)) return 0;
+	clean(host);
 
-		//The downaloding files to be send to all clients
-		std::cout << "Server UDP Port Number: ";
-		if (!std::getline(std::cin, serverUdpPort)) return 0;
-		clean(serverUdpPort);
+	std::string portNumber;
+	std::cout << "Server Port Number: ";
+	if (!std::getline(std::cin, portNumber)) return 0;
+	clean(portNumber);
 
-		std::cout << "Client UDP Port Number: ";
-		if (!std::getline(std::cin, clientUdpPort)) return 0;
-		clean(clientUdpPort);
+	std::cout << "Server UDP Port Number: ";
+	if (!std::getline(std::cin, serverUdpPort)) return 0;
+	clean(serverUdpPort);
 
-		//Where to store the download path
-		std::cout << "Path to store downloads: ";
-		if (!std::getline(std::cin, downloadPath)) return 0;
-		clean(downloadPath);
-		std::cout << std::endl;
+	std::cout << "Client UDP Port Number: ";
+	if (!std::getline(std::cin, clientUdpPort)) return 0;
+	clean(clientUdpPort);
 
-		portString = portNumber;
-	
+	std::cout << "Path to store downloads: ";
+	if (!std::getline(std::cin, downloadPath)) return 0;
+	clean(downloadPath);
+	std::cout << std::endl;
 
+	portString = portNumber;
 
-
-	// -------------------------------------------------------------------------
-	// Start up Winsock, asking for version 2.2.
-	//
-	// WSAStartup()
-	// -------------------------------------------------------------------------
-
-	// This object holds the information about the version of Winsock that we
-	// are using, which is not necessarily the version that we requested.
 	WSADATA wsaData{};
 	SecureZeroMemory(&wsaData, sizeof(wsaData));
 
-	// Initialize Winsock. You must call WSACleanup when you are finished.
-	// As this function uses a reference counter, for each call to WSAStartup,
-	// you must call WSACleanup or suffer memory issues.
-	int errorCode = WSAStartup(MAKEWORD(WINSOCK_VERSION, WINSOCK_SUBVERSION), &wsaData);
-	if (NO_ERROR != errorCode)
-	{
-		std::cerr << "WSAStartup() failed." << std::endl;
-		return errorCode;
-	}
+	if (WSAStartup(MAKEWORD(WINSOCK_VERSION, WINSOCK_SUBVERSION), &wsaData) != NO_ERROR) return 1;
 
-
-	// -------------------------------------------------------------------------
-	// Resolve a server host name into IP addresses (in a singly-linked list).
-	//
-	// getaddrinfo()
-	// -------------------------------------------------------------------------
-
-	// Object hints indicates which protocols to use to fill in the info.
 	addrinfo hints{};
 	SecureZeroMemory(&hints, sizeof(hints));
-	hints.ai_family = AF_INET;			// IPv4
-	hints.ai_socktype = SOCK_STREAM;	// Reliable delivery
-	// Could be 0 to autodetect, but reliable delivery over IPv4 is always TCP.
-	hints.ai_protocol = IPPROTO_TCP;	// TCP
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
 
 	addrinfo* info = nullptr;
-	errorCode = getaddrinfo(host.c_str(), portString.c_str(), &hints, &info);
-	if ((NO_ERROR != errorCode) || (nullptr == info))
-	{
-		std::cerr << "getaddrinfo() failed." << std::endl;
-		WSACleanup();
-		return errorCode;
-	}
+	if (getaddrinfo(host.c_str(), portString.c_str(), &hints, &info) != NO_ERROR || info == nullptr) return 1;
 
+	SOCKET clientSocket = socket(info->ai_family, info->ai_socktype, info->ai_protocol);
+	if (INVALID_SOCKET == clientSocket) return 2;
 
-	// -------------------------------------------------------------------------
-	// Create a socket and attempt to connect to the first resolved address.
-	//
-	// socket()
-	// connect()
-	// -------------------------------------------------------------------------
+	if (connect(clientSocket, info->ai_addr, static_cast<int>(info->ai_addrlen)) == SOCKET_ERROR) return 3;
 
-	SOCKET clientSocket = socket(
-		info->ai_family,
-		info->ai_socktype,
-		info->ai_protocol);
-	if (INVALID_SOCKET == clientSocket)
-	{
-		std::cerr << "socket() failed." << std::endl;
-		freeaddrinfo(info);
-		WSACleanup();
-		return RETURN_CODE_2;
-	}
-
-	errorCode = connect(
-		clientSocket,
-		info->ai_addr,
-		static_cast<int>(info->ai_addrlen));
-	if (SOCKET_ERROR == errorCode)
-	{
-		std::cerr << "connect() failed." << std::endl;
-		freeaddrinfo(info);
-		closesocket(clientSocket);
-		WSACleanup();
-		return RETURN_CODE_3;
-	}
-	
 	std::thread receiver([clientSocket]() {
 		while (true) {
 			if (!ReceiveFromServer(clientSocket)) {
 				std::cout << "Connection lost or server closed." << std::endl;
-				exit(0); // Exit if the server disconnects
+				exit(0);
 			}
 		}
 		});
-
 	receiver.detach();
 
-		std::string input{};
-		while (std::getline(std::cin ,input)) {
-
-#ifdef DEBUG_ASSIGNMENT4_TEST
-			using namespace std::chrono_literals;
-			std::this_thread::sleep_for(5000ms);
-#endif
-			if (!input.empty() && (input.back() == '\r' || input.back() == '\n')) {
-				input.pop_back();
-			}
-			if (!isManual) {
-				if (input.find_first_not_of(" \t\n\r") == std::string::npos) {
-					continue;
-				}
-			}
-
-			if (!HandleMessage(clientSocket, input)) {
-				
-				break;
-			}
-#ifdef DEBUG_ASSIGNMENT4_TEST
-			using namespace std::chrono_literals;
-			std::this_thread::sleep_for(5000ms);
-#endif
+	std::string input{};
+	while (std::getline(std::cin, input)) {
+		if (!input.empty() && (input.back() == '\r' || input.back() == '\n')) {
+			input.pop_back();
 		}
-	
-
-
-	errorCode = shutdown(clientSocket, SD_SEND);
-	if (SOCKET_ERROR == errorCode)
-	{
-		std::cerr << "shutdown() failed." << std::endl;
+		if (!isManual) {
+			if (input.find_first_not_of(" \t\n\r") == std::string::npos) continue;
+		}
+		if (!HandleMessage(clientSocket, input)) break;
 	}
+
+	shutdown(clientSocket, SD_SEND);
 	closesocket(clientSocket);
-
-
-	// -------------------------------------------------------------------------
-	// Clean-up after Winsock.
-	//
-	// WSACleanup()
-	// -------------------------------------------------------------------------
-
 	WSACleanup();
 }
 
-
 void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t sessionID, uint32_t fileLen, std::string filename) {
-	// 1. Open the file for writing (binary mode)
 	std::filesystem::path fullPath = std::filesystem::path(downloadPath) / filename;
 	std::ofstream file(fullPath, std::ios::binary | std::ios::trunc);
-	if (!file.is_open()) {
-		std::cerr << "UDP Thread: Could not create file " << fullPath << std::endl;
-		return;
-	}
+	if (!file.is_open()) return;
 
-	// 2. Create and Bind the UDP Socket
 	SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (udpSocket == INVALID_SOCKET) {
-		std::cerr << "UDP Thread: Socket creation failed." << std::endl;
-		return;
-	}
+	if (udpSocket == INVALID_SOCKET) return;
 
 	sockaddr_in clientUdpAddr{};
 	clientUdpAddr.sin_family = AF_INET;
@@ -500,60 +328,74 @@ void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t
 	clientUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(clientUdpPort)));
 
 	if (bind(udpSocket, (sockaddr*)&clientUdpAddr, sizeof(clientUdpAddr)) == SOCKET_ERROR) {
-		std::cerr << "UDP Thread: Bind failed on port " << clientUdpPort << std::endl;
 		closesocket(udpSocket);
 		return;
 	}
 
-	// 3. Receive Loop
 	uint32_t totalBytesReceived = 0;
-	const int MAX_BUFFER = 2048; // Must be larger than our server payload (1024 + header)
+	const int MAX_BUFFER = 2048;
 	std::vector<char> recvBuffer(MAX_BUFFER);
+	std::set<uint32_t> receivedOffsets;
 
 	sockaddr_in fromAddr;
 	int fromLen = sizeof(fromAddr);
 
 	std::cout << "UDP Thread: Listening for Session " << sessionID << "..." << std::endl;
 
-	// We use a timeout so the thread doesn't hang forever if the transfer drops completely
-	DWORD timeout = 5000; // 5 seconds
+	DWORD timeout = 5000;
 	setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
+	int lastPercent = -1;
 
 	while (totalBytesReceived < fileLen) {
 		int bytesRead = recvfrom(udpSocket, recvBuffer.data(), MAX_BUFFER, 0,
 			(sockaddr*)&fromAddr, &fromLen);
 
 		if (bytesRead > 0 && bytesRead >= sizeof(UdpDataHeader)) {
-			// We got a packet! Check the header.
 			UdpDataHeader* header = reinterpret_cast<UdpDataHeader*>(recvBuffer.data());
 
-			// Convert to Host Byte Order for logic 
 			uint32_t incomingSession = ntohl(header->sessionID);
 			uint32_t incomingOffset = ntohl(header->fileOffset);
 			uint32_t incomingDataLen = ntohl(header->dataLen);
 
-			// Is this packet meant for this thread?
 			if (incomingSession == sessionID) {
-				// Yes! Write the payload to the file at the exact offset 
-				file.seekp(incomingOffset);
-				file.write(recvBuffer.data() + sizeof(UdpDataHeader), incomingDataLen);
+				if (incomingDataLen > static_cast<uint32_t>(bytesRead - sizeof(UdpDataHeader))) continue;
 
-				// If this is new data (not a retransmission we already wrote), update our total
-				if (incomingOffset == totalBytesReceived) {
+				if (receivedOffsets.find(incomingOffset) == receivedOffsets.end()) {
+					file.seekp(incomingOffset);
+					file.write(recvBuffer.data() + sizeof(UdpDataHeader), incomingDataLen);
+
+					receivedOffsets.insert(incomingOffset);
 					totalBytesReceived += incomingDataLen;
+
+					// --- PROGRESS BAR LOGIC ---
+					int currentPercent = static_cast<int>((totalBytesReceived * 100.0) / fileLen);
+
+					// Only redraw if the percentage actually changed (saves CPU and prevents screen flickering)
+					if (currentPercent != lastPercent) {
+						lastPercent = currentPercent;
+						int barWidth = 50;
+						int pos = static_cast<int>(barWidth * (totalBytesReceived / static_cast<double>(fileLen)));
+
+						std::lock_guard<std::mutex> lock{ _stdoutMutex };
+						std::cout << "\r[";
+						for (int i = 0; i < barWidth; ++i) {
+							if (i < pos) std::cout << "=";
+							else if (i == pos) std::cout << ">";
+							else std::cout << " ";
+						}
+						std::cout << "] " << currentPercent << "%";
+						std::cout.flush(); // Force the console to draw it immediately
+					}
+					// -----------------------------------
 				}
 
-				// 4. Send the ACK back to the server
 				UdpAckHeader ack;
-				ack.flags = 0x01; // LSB indicates ACK 
-
-				// The ACK number is the next byte we expect
-				// (e.g. if we just successfully wrote offset 0 + 1024 bytes, we ACK 1024)
+				ack.flags = 0x01;
 				ack.ackNum = htonl(incomingOffset + incomingDataLen);
-				ack.seqNum = header->fileOffset; // Acknowledge the sequence we just got 
+				ack.seqNum = header->fileOffset;
 
-				sendto(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0,
-				(sockaddr*)&fromAddr, fromLen);
+				sendto(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0, (sockaddr*)&fromAddr, fromLen);
 			}
 		}
 		else if (bytesRead == SOCKET_ERROR) {
@@ -562,8 +404,14 @@ void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t
 				std::cout << "UDP Thread: Timeout waiting for packets. Transfer incomplete." << std::endl;
 				break;
 			}
+			else {
+				std::cerr << "UDP Thread: Socket Error " << err << ". Transfer incomplete." << std::endl;
+				break;
+			}
 		}
 	}
+
+	std::cout << std::endl; // Move to the next line after the bar finishes
 
 	if (totalBytesReceived == fileLen) {
 		std::cout << "UDP Thread: Download complete! Saved to " << fullPath << std::endl;
