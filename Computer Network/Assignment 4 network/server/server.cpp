@@ -87,7 +87,7 @@ bool receiveAll(SOCKET s, char* buffer, int totalBytes) {
 	int receivedSoFar = 0;
 	while (receivedSoFar < totalBytes) {
 		int res = recv(s, buffer + receivedSoFar, totalBytes - receivedSoFar, 0);
-		if (res <= 0) return false; // Connection closed or error [cite: 222]
+		if (res <= 0) return false; // Connection closed or error 
 		receivedSoFar += res;
 	}
 	return true;
@@ -492,6 +492,8 @@ bool execute(SOCKET clientSocket) //Clientsocket can be seen with a number that 
 					userRegisteration.erase(myKey);
 				}
 				sendAll(clientSocket, (char*)&error, 1);
+
+				break;
 			}
 		}
 
@@ -529,21 +531,21 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 		return;
 	}
 
-	// Enable SO_REUSEADDR so multiple threads can share the Server UDP Port
-	int optval = 1;
-	setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
+	//// Enable SO_REUSEADDR so multiple threads can share the Server UDP Port
+	//int optval = 1;
+	//setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
 
-	// Bind to the Server's specified UDP port
-	sockaddr_in serverUdpAddr{};
-	serverUdpAddr.sin_family = AF_INET;
-	serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
-	serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
+	//// Bind to the Server's specified UDP port
+	//sockaddr_in serverUdpAddr{};
+	//serverUdpAddr.sin_family = AF_INET;
+	//serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
+	//serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
 
-	if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
-		std::cerr << "UDP Thread: Bind failed." << std::endl;
-		closesocket(udpSocket);
-		return;
-	}
+	//if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
+	//	std::cerr << "UDP Thread: Bind failed." << std::endl;
+	//	closesocket(udpSocket);
+	//	return;
+	//}
 
 	// Target address (The Client)
 	sockaddr_in targetAddr{};
@@ -562,12 +564,12 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 		file.read(fileBuffer.data(), MAX_DATA_PAYLOAD);
 		uint32_t bytesRead = static_cast<uint32_t>(file.gcount());
 
-		// Construct Header (converting to network byte order) [cite: 201]
+		// Construct Header (converting to network byte order) 
 		UdpDataHeader header;
-		header.sessionID = htonl(sessionID);   // 4 bytes [cite: 298]
-		header.fileLen = htonl(fileLen);       // 4 bytes [cite: 299]
-		header.fileOffset = htonl(currentOffset); // 4 bytes [cite: 300]
-		header.dataLen = htonl(bytesRead);     // 4 bytes [cite: 302]
+		header.sessionID = htonl(sessionID);   // 4 bytes 
+		header.fileLen = htonl(fileLen);       // 4 bytes 
+		header.fileOffset = htonl(currentOffset); // 4 bytes 
+		header.dataLen = htonl(bytesRead);     // 4 bytes 
 
 		// Pack header + data
 		std::vector<char> packet;
@@ -578,7 +580,7 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 
 		bool ackReceived = false;
 		int retransmissions = 0;
-
+		const int MAX_RETRIES = 20; //Stops after 20 attempts at it
 		// 4. Send and Wait for ACK
 		while (!ackReceived) {
 			// Send the datagram
@@ -606,10 +608,10 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 					(sockaddr*)&fromAddr, &fromLen);
 
 				if (recvBytes == sizeof(UdpAckHeader)) {
-					// Convert back to host byte order to check [cite: 201]
+					// Convert back to host byte order to check
 					uint32_t ackNum = ntohl(ack.ackNum);
 
-					// If the ACK number matches the end of our current chunk, it's successful!
+					// If the ACK number matches the end of our current chunk, it's successful
 					if (ackNum == currentOffset + bytesRead) {
 						ackReceived = true;
 						currentOffset += bytesRead; // Advance the offset
@@ -619,8 +621,16 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 			else {
 				// Timeout occurred. The loop will repeat and retransmit.
 				retransmissions++;
-				// Recommendation: log the retransmission information 
-				std::cout << "Timeout. Retransmitting offset " << currentOffset << " (Attempt " << retransmissions << ")" << std::endl;
+				// Recommendation: log the retransmission information
+				if (retransmissions == MAX_RETRIES - 1) {
+					std::cout << "Final attempt at retransmission" << std::endl;
+				}
+					std::cout << "Timeout. Retransmitting offset " << currentOffset << " (Attempt " << retransmissions << ")" << std::endl;
+				if (retransmissions >= MAX_RETRIES) {
+					std::cerr << "UDP THREAD: Max retransmissions. Error. Aborting transfer." << std::endl;
+					closesocket(udpSocket);
+					return; // Kill the thread
+				}
 			}
 		}
 	}

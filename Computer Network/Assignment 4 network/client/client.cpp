@@ -90,7 +90,7 @@ bool recvAll(SOCKET s, char* buffer, int size) {
 	int received = 0;
 	while (received < size) {
 		int res = recv(s, buffer + received, size - received, 0);
-		if (res <= 0) return false; // Server closed or error [cite: 222]
+		if (res <= 0) return false; // Server closed or error
 		received += res;
 	}
 	return true;
@@ -527,14 +527,14 @@ void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t
 			// We got a packet! Check the header.
 			UdpDataHeader* header = reinterpret_cast<UdpDataHeader*>(recvBuffer.data());
 
-			// Convert to Host Byte Order for logic [cite: 201]
+			// Convert to Host Byte Order for logic 
 			uint32_t incomingSession = ntohl(header->sessionID);
 			uint32_t incomingOffset = ntohl(header->fileOffset);
 			uint32_t incomingDataLen = ntohl(header->dataLen);
 
 			// Is this packet meant for this thread?
 			if (incomingSession == sessionID) {
-				// Yes! Write the payload to the file at the exact offset [cite: 300]
+				// Yes! Write the payload to the file at the exact offset 
 				file.seekp(incomingOffset);
 				file.write(recvBuffer.data() + sizeof(UdpDataHeader), incomingDataLen);
 
@@ -545,21 +545,15 @@ void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t
 
 				// 4. Send the ACK back to the server
 				UdpAckHeader ack;
-				ack.flags = 0x01; // LSB indicates ACK [cite: 306]
+				ack.flags = 0x01; // LSB indicates ACK 
 
-				// The ACK number is the next byte we expect [cite: 307]
+				// The ACK number is the next byte we expect
 				// (e.g. if we just successfully wrote offset 0 + 1024 bytes, we ACK 1024)
 				ack.ackNum = htonl(incomingOffset + incomingDataLen);
-				ack.seqNum = header->fileOffset; // Acknowledge the sequence we just got [cite: 308]
-
-				// Use the Server's IP and Port from the RSP_DOWNLOAD message
-				sockaddr_in serverAddr{};
-				serverAddr.sin_family = AF_INET;
-				serverAddr.sin_addr.s_addr = serverIpNet;
-				serverAddr.sin_port = serverPortNet;
+				ack.seqNum = header->fileOffset; // Acknowledge the sequence we just got 
 
 				sendto(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0,
-					(sockaddr*)&serverAddr, sizeof(serverAddr));
+				(sockaddr*)&fromAddr, fromLen);
 			}
 		}
 		else if (bytesRead == SOCKET_ERROR) {
