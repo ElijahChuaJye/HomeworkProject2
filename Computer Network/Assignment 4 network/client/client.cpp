@@ -4,7 +4,7 @@
 \file   client.cpp
 \author Elijah Chua & Guan Shao Jun
 \par    e.chua@digipen.edu, shaojun.g@digipen.edu
-\date   21 Feb 2026
+\date   16 March 2026
 \brief
 	This file implements a multi-threaded TCP/IP client designed to
 	interact with a custom echo server. Key features include:
