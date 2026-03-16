@@ -2,8 +2,8 @@
 *****************************************************************/
 /*!
 \file   protocol.h
-\author Elijah Chua & Shao Jun
-\par    e.chua@digipen.edu,
+\author Elijah Chua & Guan Shao Jun
+\par    e.chua@digipen.edu, shaojun.g@digipen.edu
 \date   3/9/2025
 \brief  Shared protocol definitions for Assignment 4.
 ...
