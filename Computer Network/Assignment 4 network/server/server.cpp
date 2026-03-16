@@ -520,6 +520,10 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 
 			// Send to client without blocking
 			sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
+
+			// --------------------------------
+			// Testing for fast retransmission
+			// --------------------------------
 			//static bool droppedFirstPacket = false;
 			//if (!droppedFirstPacket && nextOffset == 0) {
 			//	std::cout << "\n[TEST] Artificially dropping the first packet (offset 0)!" << std::endl;
