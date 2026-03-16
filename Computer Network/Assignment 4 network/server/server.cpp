@@ -396,24 +396,34 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 	SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (udpSocket == INVALID_SOCKET) return;
 
-	int optval = 1;
-	setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
+	//int optval = 1;
+	//setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&optval, sizeof(optval));
 
-	sockaddr_in serverUdpAddr{};
-	serverUdpAddr.sin_family = AF_INET;
-	serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
-	serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
+	//sockaddr_in serverUdpAddr{};
+	//serverUdpAddr.sin_family = AF_INET;
+	//serverUdpAddr.sin_addr.s_addr = INADDR_ANY;
+	//serverUdpAddr.sin_port = htons(static_cast<uint16_t>(std::stoi(udpPortString)));
 
-	if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
-		std::cerr << "UDP Thread: Bind failed." << std::endl;
-		closesocket(udpSocket);
-		return;
-	}
+	//if (bind(udpSocket, (sockaddr*)&serverUdpAddr, sizeof(serverUdpAddr)) == SOCKET_ERROR) {
+	//	std::cerr << "UDP Thread: Bind failed." << std::endl;
+	//	closesocket(udpSocket);
+	//	return;
+	//}
 
 	sockaddr_in targetAddr{};
 	targetAddr.sin_family = AF_INET;
 	targetAddr.sin_addr.s_addr = clientIpNet;
 	targetAddr.sin_port = clientPortNet;
+
+	// "Connect" the UDP socket to the specific client.
+	// This forces the OS to filter incoming ACKs on port 9999 and route them 
+	// exclusively to THIS thread based on the client's specific IP and Port.
+	if (connect(udpSocket, (sockaddr*)&targetAddr, sizeof(targetAddr)) == SOCKET_ERROR) {
+		std::cerr << "UDP Thread: Connect failed." << std::endl;
+		closesocket(udpSocket);
+		return;
+	}
+	// --------------------------
 
 	const int MAX_DATA_PAYLOAD = 1024;
 	const size_t WINDOW_SIZE = 10;
