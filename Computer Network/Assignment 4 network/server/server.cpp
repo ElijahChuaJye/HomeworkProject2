@@ -431,11 +431,12 @@ bool execute(SOCKET clientSocket)
  * @brief Represents a single unacknowledged packet in the Sliding Window.
  */
 struct PacketSlot {
-	uint32_t offset;
-	uint32_t dataLen;
-	std::vector<char> buffer;
-	ULONGLONG sendTime;
-	bool acked;
+	uint32_t offset{};
+	uint32_t dataLen{};
+	std::vector<char> buffer{};
+	ULONGLONG sendTime{};
+	bool acked{};
+	int retries{};
 };
 
 /**
@@ -477,10 +478,15 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 
 	uint32_t baseOffset = 0; // Tracks the start of the sliding window
 	uint32_t nextOffset = 0; // Tracks the next byte to read from disk
-	int timeoutCounter = 0;
+	int timeOutCounter = 0;
 
 	// The actual Sliding Window data structure
 	std::map<uint32_t, PacketSlot> window;
+
+	int outOfOrderAcks{};
+
+	//Let client open its udp with 200ms
+	Sleep(200);
 
 	while (baseOffset < fileLen) {
 
@@ -510,10 +516,20 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 			packet.insert(packet.end(), fileBuffer.begin(), fileBuffer.begin() + bytesRead);
 
 			// Save packet to the tracking map with current timestamp
-			window[nextOffset] = { nextOffset, bytesRead, packet, GetTickCount64(), false };
+			window[nextOffset] = { nextOffset, bytesRead, packet, GetTickCount64(), false, 0};
 
 			// Send to client without blocking
 			sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
+			//static bool droppedFirstPacket = false;
+			//if (!droppedFirstPacket && nextOffset == 0) {
+			//	std::cout << "\n[TEST] Artificially dropping the first packet (offset 0)!" << std::endl;
+			//	droppedFirstPacket = true;
+			//	// Notice we skip the sendto() function entirely here!
+			//}
+			//else {
+			//	sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
+			//}
+
 			nextOffset += bytesRead;
 		}
 
@@ -530,7 +546,6 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 
 		int selRes = select(0, &readFds, NULL, NULL, &timeout);
 		if (selRes > 0) {
-			timeoutCounter = 0;
 
 			UdpAckHeader ack;
 			sockaddr_in fromAddr;
@@ -538,16 +553,49 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 			int recvBytes = recvfrom(udpSocket, reinterpret_cast<char*>(&ack), sizeof(UdpAckHeader), 0, (sockaddr*)&fromAddr, &fromLen);
 
 			if (recvBytes == sizeof(UdpAckHeader)) {
+				//Resets the timer if actually got a proper package
+				timeOutCounter = 0;
 				uint32_t ackedOffset = ntohl(ack.seqNum); // Match ACK against specific packet
+
 				if (window.find(ackedOffset) != window.end()) {
 					window[ackedOffset].acked = true;
+					if (ackedOffset == window.begin()->first) {
+						//If we successfully got the older packet, reset the gap counter.
+						outOfOrderAcks = 0;
+					}
+					else {
+						++outOfOrderAcks;
+
+						if (outOfOrderAcks >= 4) { //After 4 ACKS retransmit immidatelly
+							//We got a newer packet, meaning a gap formed
+							auto& oldestPacket = window.begin()->second;
+
+							//If we get 3 newer packets, oldest
+							if (!oldestPacket.acked) {
+								std::cout << "UDP Thread: Fast Retransmit triggered" << std::endl;
+								sendto(udpSocket, oldestPacket.buffer.data(), static_cast<int>(oldestPacket.buffer.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
+
+								oldestPacket.sendTime = GetTickCount64(); // Reset Phase 4 timer so it doesn't double-send
+								oldestPacket.retries++;
+								outOfOrderAcks = 0; // Reset the gap counter after firing
+
+							}
+						}
+					}
+				}
+			}
+			else if (recvBytes == SOCKET_ERROR) {
+				int err = WSAGetLastError();
+				if (err == WSAECONNRESET) {
+					std::cerr << "UDP Thread: Client forcibly closed the connection. Aborting." << std::endl;
+					break; //Kills the infinite loop
 				}
 			}
 		}
 		else {
 			// Safety timeout: If client vanishes mid-download, kill the thread
-			timeoutCounter++;
-			if (timeoutCounter > 1000) { // Approx 10 seconds of pure silence
+			timeOutCounter++;
+			if (timeOutCounter > 1000) { // Approx 10 seconds of pure silence
 				std::cerr << "UDP Thread: Client disconnected or max timeouts reached. Aborting." << std::endl;
 				break;
 			}
@@ -565,13 +613,23 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 
 		// ---------------------------------------------------------
 		// PHASE 4: SELECTIVE RETRANSMISSION
-		// Iterates through all un-ACKed packets. If 500ms has elapsed
+		// Iterates through all un-ACKed packets. If 1000ms has elapsed
 		// since a specific packet was sent, assume it was dropped by the
 		// router and re-send ONLY that specific packet.
 		// ---------------------------------------------------------
 		ULONGLONG currentTime = GetTickCount64();
 		for (auto& pair : window) {
-			if (!pair.second.acked && (currentTime - pair.second.sendTime > 500)) {
+			if (!pair.second.acked && (currentTime - pair.second.sendTime > 1000)) { //After one second, tries again
+				++pair.second.retries;
+
+				if (pair.second.retries >= 20) {
+
+					std::cerr << "UDP Thread: Packet at offset " << pair.second.offset
+							 << " failed after 20 retries. Aborting transfer." << std::endl;
+					closesocket(udpSocket);
+					return; //Kills it
+				}
+
 				sendto(udpSocket, pair.second.buffer.data(), static_cast<int>(pair.second.buffer.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
 				pair.second.sendTime = currentTime; // Reset the timeout
 			}
