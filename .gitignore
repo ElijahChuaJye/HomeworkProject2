@@ -1,2 +1,24 @@
 .vs/
 x64/
+
+# Visual Studio Build Folders
+Debug/
+Release/
+x64/
+obj/
+
+# Specific file types seen in your screenshot
+*.obj
+*.tlog
+*.pdb
+*.idb
+*.exe
+*.log
+
+# Keep the library source code
+!External/imgui/*.cpp
+!External/imgui/*.h
+
+# But ignore all build junk inside that folder
+External/imgui/Debug/
+External/imgui/obj/
