@@ -93,6 +93,12 @@ bool recvAll(SOCKET s, char* buffer, int size) {
 	}
 	return true;
 }
+/**
+ * @brief Check if it is a proper number.
+ */
+bool isNumber(const std::string& s) {
+	return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit);
+}
 
 /**
  * @brief Parses user input from the console and sends the corresponding TCP command.
@@ -308,19 +314,31 @@ int main(int argc, char** argv)
 	std::cout << "Server IP Address: ";
 	if (!std::getline(std::cin, host)) return 0;
 	clean(host);
-
 	std::string portNumber;
-	std::cout << "Server Port Number: ";
-	if (!std::getline(std::cin, portNumber)) return 0;
-	clean(portNumber);
 
-	std::cout << "Server UDP Port Number: ";
-	if (!std::getline(std::cin, serverUdpPort)) return 0;
-	clean(serverUdpPort);
+	while (true) {
+		std::cout << "Server Port Number: ";
+		if (!std::getline(std::cin, portNumber)) return 0; // Notice I used portString directly to save you a variable!
+		clean(portNumber);
+		if (isNumber(portNumber)) break;
+		std::cout << "[ERROR] Port must be numbers only!" << std::endl;
+	}
 
-	std::cout << "Client UDP Port Number: ";
-	if (!std::getline(std::cin, clientUdpPort)) return 0;
-	clean(clientUdpPort);
+	while (true) {
+		std::cout << "Server UDP Port Number: ";
+		if (!std::getline(std::cin, serverUdpPort)) return 0;
+		clean(serverUdpPort);
+		if (isNumber(serverUdpPort)) break;
+		std::cout << "[ERROR] Port must be numbers only!" << std::endl;
+	}
+
+	while (true) {
+		std::cout << "Client UDP Port Number: ";
+		std::getline(std::cin, clientUdpPort);
+		clean(clientUdpPort);
+		if (isNumber(clientUdpPort)) break; //Ensure that it is a number first. If it is break the loop and continue.
+		std::cout << "[ERROR] Port must be numbers only!" << std::endl;
+	}
 
 	while (true) {
 		std::cout << "Path to store downloads: ";
@@ -556,7 +574,7 @@ void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t
 
 	std::cout << std::endl; // Push to a new line after the \r progress bar completes
 
-	if (totalBytesReceived == fileLen && fileLen > 0) {
+	if (totalBytesReceived == fileLen) {
 		std::lock_guard<std::mutex> lock{ _stdoutMutex };
 		std::cout << "UDP Thread: Download complete! Saved to " << fullPath << std::endl;
 	}

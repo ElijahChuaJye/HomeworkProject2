@@ -88,6 +88,13 @@ bool receiveAll(SOCKET s, char* buffer, int totalBytes) {
 	return true;
 }
 
+/**
+ * @brief Check if it is a proper number.
+ */
+bool isNumber(const std::string& s) {
+	return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit);
+}
+
 // Used as a unique key for the std::map to track connected clients
 struct User {
 	uint32_t ip;
@@ -124,13 +131,21 @@ int main()
 		};
 
 	// --- Console Setup Phase ---
-	std::cout << "Server TCP Port Number: ";
-	if (!std::getline(std::cin, portString)) return 0;
-	clean(portString);
+	while (true) {
+		std::cout << "Server TCP Port Number: ";
+		if (!std::getline(std::cin, portString)) return 0;
+		clean(portString);
+		if (isNumber(portString)) break;
+		std::cout << "[ERROR] TCP Port must be numbers only!" << std::endl;
+	}
 
-	std::cout << "Server UDP Port Number: ";
-	if (!std::getline(std::cin, udpPortString)) return 0;
-	clean(udpPortString);
+	while (true) {
+		std::cout << "Server UDP Port Number: ";
+		if (!std::getline(std::cin, udpPortString)) return 0;
+		clean(udpPortString);
+		if (isNumber(udpPortString)) break;
+		std::cout << "[ERROR] UDP Port must be numbers only!" << std::endl;
+	}
 
 	while (true) {
 		std::cout << "Files Path: ";
