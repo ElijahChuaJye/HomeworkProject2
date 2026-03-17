@@ -319,6 +319,33 @@ int main(int argc, char** argv)
 
 	if (WSAStartup(MAKEWORD(WINSOCK_VERSION, WINSOCK_SUBVERSION), &wsaData) != NO_ERROR) return 1;
 
+	// =========================================================================
+	// Auto-Detect and Print Client's Local IP Address
+	// We create a temporary UDP socket and "connect" it to a public DNS server (Google's 8.8.8.8).
+	// No data is actually sent, but it forces Windows to bind the socket to the
+	// correct Local IP Address (Ethernet/Wi-Fi/Hotspot) used for internet access.
+	// =========================================================================
+	SOCKET dummySocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (dummySocket != INVALID_SOCKET) {
+		sockaddr_in dummyAddr{};
+		dummyAddr.sin_family = AF_INET;
+		dummyAddr.sin_port = htons(53); // DNS port
+		inet_pton(AF_INET, "8.8.8.8", &dummyAddr.sin_addr);
+
+		if (connect(dummySocket, (sockaddr*)&dummyAddr, sizeof(dummyAddr)) != SOCKET_ERROR) {
+			sockaddr_in localAddr{};
+			int addrLen = sizeof(localAddr);
+			if (getsockname(dummySocket, (sockaddr*)&localAddr, &addrLen) != SOCKET_ERROR) {
+				char myIP[INET_ADDRSTRLEN];
+				inet_ntop(AF_INET, &(localAddr.sin_addr), myIP, INET_ADDRSTRLEN);
+				std::cout << "========================================" << std::endl;
+				std::cout << "-> YOUR LOCAL IP ADDRESS: " << myIP << " <-" << std::endl;
+				std::cout << "========================================" << std::endl;
+			}
+		}
+		closesocket(dummySocket);
+	}
+
 	// Request a reliable TCP IPv4 socket
 	addrinfo hints{};
 	SecureZeroMemory(&hints, sizeof(hints));
