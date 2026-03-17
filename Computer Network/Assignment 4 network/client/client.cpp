@@ -556,8 +556,19 @@ void UdpReceiveFileThread(uint32_t serverIpNet, uint16_t serverPortNet, uint32_t
 
 	std::cout << std::endl; // Push to a new line after the \r progress bar completes
 
-	if (totalBytesReceived == fileLen) {
+	if (totalBytesReceived == fileLen && fileLen > 0) {
+		std::lock_guard<std::mutex> lock{ _stdoutMutex };
 		std::cout << "UDP Thread: Download complete! Saved to " << fullPath << std::endl;
+	}
+	else {
+		std::lock_guard<std::mutex> lock{ _stdoutMutex };
+		std::cout << "[ERROR] Download failed! Transfer incomplete ("
+			<< totalBytesReceived << "/" << fileLen << " bytes received)." << std::endl;
+
+		// Clean up the partial/failed file so you don't have a corrupt file in your folder
+		file.close();
+		std::error_code ignore_ec;
+		std::filesystem::remove(fullPath, ignore_ec);
 	}
 
 	closesocket(udpSocket);
