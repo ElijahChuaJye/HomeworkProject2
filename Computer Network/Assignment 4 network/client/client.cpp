@@ -338,9 +338,7 @@ int main(int argc, char** argv)
 			if (getsockname(dummySocket, (sockaddr*)&localAddr, &addrLen) != SOCKET_ERROR) {
 				char myIP[INET_ADDRSTRLEN];
 				inet_ntop(AF_INET, &(localAddr.sin_addr), myIP, INET_ADDRSTRLEN);
-				std::cout << "========================================" << std::endl;
-				std::cout << "-> YOUR LOCAL IP ADDRESS: " << myIP << " <-" << std::endl;
-				std::cout << "========================================" << std::endl;
+				std::cout << "-> Your local IP address: " << myIP << " <-" << std::endl;
 			}
 		}
 		closesocket(dummySocket);
