@@ -123,12 +123,23 @@ bool HandleMessage(SOCKET source, std::string const& msg) {
 		std::string content = msg.substr(3);
 		size_t colonPos = content.find(':');
 		size_t spacePos = content.find(' ');
-
+		if (colonPos == std::string::npos || spacePos == std::string::npos || spacePos < colonPos) {
+			std::lock_guard<std::mutex> lock{ _stdoutMutex };
+			std::cout << "[ERROR] Invalid download format!" << std::endl;
+			std::cout << "Usage: /d <Your_IP>:<Your_UDP_Port> <filename>" << std::endl;
+			std::cout << "Example: /d 192.168.43.10:9000 testfile.txt" << std::endl;
+			return true;
+		}
 		// Validate the format
-		if (colonPos != std::string::npos && spacePos != std::string::npos && spacePos > colonPos) {
+		try {
 			std::string ipString = content.substr(0, colonPos);
 			std::string portString = content.substr(colonPos + 1, spacePos - colonPos - 1);
 			std::string filename = content.substr(spacePos + 1);
+
+			//If the strings are empty
+			if (ipString.empty() || portString.empty() || filename.empty()) {
+				throw std::runtime_error("Missing fields");
+			}
 
 			// Save globally so the background thread knows what to name the file once the server accepts
 			lastRequestedFilename = filename;
@@ -162,6 +173,11 @@ bool HandleMessage(SOCKET source, std::string const& msg) {
 			if (!sendAll(source, fullPacket.data(), static_cast<int>(fullPacket.size()))) {
 				return false;
 			}
+		}
+		catch (const std::exception&) {
+			std::lock_guard<std::mutex> lock{ _stdoutMutex };
+			std::cout << "[ERROR] Could not parse download command. Please check your IP and Port." << std::endl;
+			return true;
 		}
 	}
 	else {
@@ -306,10 +322,37 @@ int main(int argc, char** argv)
 	if (!std::getline(std::cin, clientUdpPort)) return 0;
 	clean(clientUdpPort);
 
-	std::cout << "Path to store downloads: ";
-	if (!std::getline(std::cin, downloadPath)) return 0;
-	clean(downloadPath);
-	std::cout << std::endl;
+	while (true) {
+		std::cout << "Path to store downloads: ";
+		if (!std::getline(std::cin, downloadPath)) return 0;
+		clean(downloadPath);
+
+		std::cout << std::endl;
+
+		std::error_code ec;
+		if (std::filesystem::exists(downloadPath, ec)) {
+			if (std::filesystem::is_directory(downloadPath, ec)) {
+				break; // Valid folder
+			}
+			else { //If is a file and not a folder location
+				std::cout << "\n[ERROR] Path exists but is a file, not a folder.\n" << std::endl;
+			}
+		}
+		else { //Help user to create
+			std::cout << "Path missing. Create it? (y/n): ";
+			std::string choice;
+			std::getline(std::cin, choice);
+			if (choice == "y" || choice == "Y") {
+				if (std::filesystem::create_directories(downloadPath, ec)) {
+					std::cout << "Directory created successfully." << std::endl;
+					break;
+				}
+				else {
+					std::cout << "\n[ERROR] Could not create directory. Try a different path.\n" << std::endl;
+				}
+			}
+		}
+	}
 
 	portString = portNumber;
 
