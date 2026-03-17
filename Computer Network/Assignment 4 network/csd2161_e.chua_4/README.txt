@@ -47,5 +47,14 @@ Once connected, you can use the following commands in the client terminal:
 /q
     Gracefully disconnects from the server and quits the client application.
 
+--- Building and Running via Visual Studio ---
+1. Open the "Assignment4.sln" file in Visual Studio 2022.
+2. Go to the top menu and select "Build" -> "Build Solution" (Ctrl+Shift+B).
+3. To run both projects simultaneously from Visual Studio:
+   a. In the "Solution Explorer" on the right, and right click on to Configure Startup Project
+   b. Check on Multiple startup project
+   c. Select start for both "client" and "server"
+   d. Select release and press Start
+
 --- TROUBLESHOOTING ---
 If testing across two different devices (e.g., over a Wi-Fi hotspot) and the download stays at 0%, ensure you have allowed the application through the Windows Defender Firewall for both "Private" and "Public" networks.

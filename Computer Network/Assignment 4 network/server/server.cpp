@@ -132,9 +132,20 @@ int main()
 	if (!std::getline(std::cin, udpPortString)) return 0;
 	clean(udpPortString);
 
-	std::cout << "Files Path: ";
-	if (!std::getline(std::cin, filesPath)) return 0;
-	clean(filesPath);
+	while (true) {
+		std::cout << "Files Path: ";
+		if (!std::getline(std::cin, filesPath)) return 0;
+		clean(filesPath);
+
+		std::error_code ec;
+		// Check if path exists AND is a directory
+		if (std::filesystem::exists(filesPath, ec) && std::filesystem::is_directory(filesPath, ec)) {
+			break; // Path is valid, exit the loop
+		}
+		else {
+			std::cout << "[ERROR] '" << filesPath << "' is not a valid directory. Please try again." << std::endl;
+		}
+	}
 
 	// --- TCP Socket Setup ---
 	addrinfo hints{};
@@ -516,7 +527,7 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 			packet.insert(packet.end(), fileBuffer.begin(), fileBuffer.begin() + bytesRead);
 
 			// Save packet to the tracking map with current timestamp
-			window[nextOffset] = { nextOffset, bytesRead, packet, GetTickCount64(), false, 0};
+			window[nextOffset] = { nextOffset, bytesRead, packet, GetTickCount64(), false, 0 };
 
 			// Send to client without blocking
 			sendto(udpSocket, packet.data(), static_cast<int>(packet.size()), 0, (sockaddr*)&targetAddr, sizeof(targetAddr));
@@ -629,7 +640,7 @@ void UdpSendFileThread(uint32_t clientIpNet, uint16_t clientPortNet, std::string
 				if (pair.second.retries >= 20) {
 
 					std::cerr << "UDP Thread: Packet at offset " << pair.second.offset
-							 << " failed after 20 retries. Aborting transfer." << std::endl;
+						<< " failed after 20 retries. Aborting transfer." << std::endl;
 					closesocket(udpSocket);
 					return; //Kills it
 				}
