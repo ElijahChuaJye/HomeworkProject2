@@ -21,4 +21,4 @@ prior written consent of DigiPen Institute of Technology is prohibited.
 
 Type "/l" to list the downloadable content in the server file path
 
-Type "/d <ServerIP>:<ClientUDPPort> <filename>" to download the desired file
+Type "/d <ClientIP>:<ClientUDPPort> <filename>" to download the desired file
