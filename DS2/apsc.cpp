@@ -105,6 +105,7 @@ void SpatialGrid::insert_segment(Vertex* v) {
 }
 
 void SpatialGrid::remove_segment(Vertex* v) {
+    (void) v;
     // Note: To keep things incredibly fast, we actually use "Lazy Deletion" for the grid too.
     // We don't actively search and erase vectors here. 
     // We just filter out inactive vertices when we retrieve them in get_candidates.

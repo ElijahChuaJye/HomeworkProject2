@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/vega@5.25.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5.15.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6.22.2"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    const spec = {
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "data": {
+    "values": [
+      {
+        "order": 0,
+        "ring_id": "0",
+        "x": 0.0,
+        "y": 0.0
+      },
+      {
+        "order": 1,
+        "ring_id": "0",
+        "x": 200.0,
+        "y": -80.0
+      },
+      {
+        "order": 2,
+        "ring_id": "0",
+        "x": 400.0,
+        "y": 0.0
+      },
+      {
+        "order": 3,
+        "ring_id": "0",
+        "x": 600.0,
+        "y": -50.0
+      },
+      {
+        "order": 4,
+        "ring_id": "0",
+        "x": 800.0,
+        "y": 0.0
+      },
+      {
+        "order": 5,
+        "ring_id": "0",
+        "x": 1000.0,
+        "y": -80.0
+      },
+      {
+        "order": 6,
+        "ring_id": "0",
+        "x": 1200.0,
+        "y": 0.0
+      },
+      {
+        "order": 7,
+        "ring_id": "0",
+        "x": 1400.0,
+        "y": 150.0
+      },
+      {
+        "order": 8,
+        "ring_id": "0",
+        "x": 1450.0,
+        "y": 300.0
+      },
+      {
+        "order": 9,
+        "ring_id": "0",
+        "x": 1400.0,
+        "y": 500.0
+      },
+      {
+        "order": 10,
+        "ring_id": "0",
+        "x": 1300.0,
+        "y": 650.0
+      },
+      {
+        "order": 11,
+        "ring_id": "0",
+        "x": 1150.0,
+        "y": 750.0
+      },
+      {
+        "order": 12,
+        "ring_id": "0",
+        "x": 1000.0,
+        "y": 800.0
+      },
+      {
+        "order": 13,
+        "ring_id": "0",
+        "x": 800.0,
+        "y": 850.0
+      },
+      {
+        "order": 14,
+        "ring_id": "0",
+        "x": 600.0,
+        "y": 800.0
+      },
+      {
+        "order": 15,
+        "ring_id": "0",
+        "x": 400.0,
+        "y": 850.0
+      },
+      {
+        "order": 16,
+        "ring_id": "0",
+        "x": 200.0,
+        "y": 800.0
+      },
+      {
+        "order": 17,
+        "ring_id": "0",
+        "x": 50.0,
+        "y": 700.0
+      },
+      {
+        "order": 18,
+        "ring_id": "0",
+        "x": -100.0,
+        "y": 550.0
+      },
+      {
+        "order": 19,
+        "ring_id": "0",
+        "x": -150.0,
+        "y": 400.0
+      },
+      {
+        "order": 20,
+        "ring_id": "0",
+        "x": -150.0,
+        "y": 250.0
+      },
+      {
+        "order": 21,
+        "ring_id": "0",
+        "x": -100.0,
+        "y": 100.0
+      },
+      {
+        "order": 22,
+        "ring_id": "0",
+        "x": 0.0,
+        "y": 0.0
+      },
+      {
+        "order": 0,
+        "ring_id": "1",
+        "x": 100.0,
+        "y": 200.0
+      },
+      {
+        "order": 1,
+        "ring_id": "1",
+        "x": 100.0,
+        "y": 350.0
+      },
+      {
+        "order": 2,
+        "ring_id": "1",
+        "x": 150.0,
+        "y": 500.0
+      },
+      {
+        "order": 3,
+        "ring_id": "1",
+        "x": 250.0,
+        "y": 550.0
+      },
+      {
+        "order": 4,
+        "ring_id": "1",
+        "x": 350.0,
+        "y": 500.0
+      },
+      {
+        "order": 5,
+        "ring_id": "1",
+        "x": 350.0,
+        "y": 350.0
+      },
+      {
+        "order": 6,
+        "ring_id": "1",
+        "x": 300.0,
+        "y": 200.0
+      },
+      {
+        "order": 7,
+        "ring_id": "1",
+        "x": 100.0,
+        "y": 200.0
+      },
+      {
+        "order": 0,
+        "ring_id": "2",
+        "x": 550.0,
+        "y": 150.0
+      },
+      {
+        "order": 1,
+        "ring_id": "2",
+        "x": 500.0,
+        "y": 300.0
+      },
+      {
+        "order": 2,
+        "ring_id": "2",
+        "x": 550.0,
+        "y": 450.0
+      },
+      {
+        "order": 3,
+        "ring_id": "2",
+        "x": 650.0,
+        "y": 500.0
+      },
+      {
+        "order": 4,
+        "ring_id": "2",
+        "x": 750.0,
+        "y": 450.0
+      },
+      {
+        "order": 5,
+        "ring_id": "2",
+        "x": 800.0,
+        "y": 300.0
+      },
+      {
+        "order": 6,
+        "ring_id": "2",
+        "x": 750.0,
+        "y": 150.0
+      },
+      {
+        "order": 7,
+        "ring_id": "2",
+        "x": 550.0,
+        "y": 150.0
+      },
+      {
+        "order": 0,
+        "ring_id": "3",
+        "x": 1000.0,
+        "y": 250.0
+      },
+      {
+        "order": 1,
+        "ring_id": "3",
+        "x": 1020.0,
+        "y": 350.0
+      },
+      {
+        "order": 2,
+        "ring_id": "3",
+        "x": 1080.0,
+        "y": 500.0
+      },
+      {
+        "order": 3,
+        "ring_id": "3",
+        "x": 1200.0,
+        "y": 600.0
+      },
+      {
+        "order": 4,
+        "ring_id": "3",
+        "x": 1250.0,
+        "y": 500.0
+      },
+      {
+        "order": 5,
+        "ring_id": "3",
+        "x": 1200.0,
+        "y": 350.0
+      },
+      {
+        "order": 6,
+        "ring_id": "3",
+        "x": 1100.0,
+        "y": 200.0
+      },
+      {
+        "order": 7,
+        "ring_id": "3",
+        "x": 1000.0,
+        "y": 250.0
+      }
+    ]
+  },
+  "description": "Polygon Simplification Visualization",
+  "encoding": {
+    "color": {
+      "field": "ring_id",
+      "title": "Ring ID",
+      "type": "nominal"
+    },
+    "order": {
+      "field": "order",
+      "type": "quantitative"
+    },
+    "tooltip": [
+      {
+        "field": "x",
+        "type": "quantitative"
+      },
+      {
+        "field": "y",
+        "type": "quantitative"
+      },
+      {
+        "field": "ring_id",
+        "type": "nominal"
+      }
+    ],
+    "x": {
+      "field": "x",
+      "scale": {
+        "zero": false
+      },
+      "title": "X Coordinate",
+      "type": "quantitative"
+    },
+    "y": {
+      "field": "y",
+      "scale": {
+        "zero": false
+      },
+      "title": "Y Coordinate",
+      "type": "quantitative"
+    }
+  },
+  "height": 700,
+  "mark": {
+    "point": true,
+    "strokeWidth": 2,
+    "type": "line"
+  },
+  "width": 700
+};
+    vegaEmbed('#vis', spec);
+  </script>
+</body>
+</html>
