@@ -151,35 +151,36 @@ bool segments_intersect(double ax, double ay, double bx, double by,
 }
 
 // Verifies that collapsing B and C into E won't cause the new segments to cross any existing lines [cite: 137]
-bool is_collapse_valid(const std::vector<Ring>& polygon, const CollapseCandidate& cand) {
-    for (const auto& ring : polygon) {
-        if (ring.active_vertex_count < 3) continue;
+bool is_collapse_valid(const SpatialGrid& grid, const CollapseCandidate& cand) {
+    // 1. Create a bounding box around the two NEW segments (A->E and E->D)
+    double min_x = std::min({cand.a->x, cand.e_x, cand.d->x});
+    double max_x = std::max({cand.a->x, cand.e_x, cand.d->x});
+    double min_y = std::min({cand.a->y, cand.e_y, cand.d->y});
+    double max_y = std::max({cand.a->y, cand.e_y, cand.d->y});
 
-        Vertex* curr = ring.head;
-        do {
-            Vertex* next_v = curr->next;
-            
-            if (curr->is_active && next_v->is_active) {
-                // Skip the specific segments we are actively removing
-                if (curr == cand.a || curr == cand.b || curr == cand.c) {
-                    curr = next_v;
-                    continue;
-                }
-                
-                // Check new segment A->E (Skip checking against segments sharing A)
-                if (curr != cand.a->prev && next_v != cand.a) {
-                    if (segments_intersect(cand.a->x, cand.a->y, cand.e_x, cand.e_y, 
-                                           curr->x, curr->y, next_v->x, next_v->y)) return false;
-                }
-                
-                // Check new segment E->D (Skip checking against segments sharing D)
-                if (curr != cand.d && next_v != cand.d->next) {
-                    if (segments_intersect(cand.e_x, cand.e_y, cand.d->x, cand.d->y, 
-                                           curr->x, curr->y, next_v->x, next_v->y)) return false;
-                }
-            }
-            curr = next_v;
-        } while (curr != ring.head);
+    // 2. Ask the grid for only the segments that exist in that small area
+    std::unordered_set<Vertex*> nearby_segments = grid.get_candidates(min_x, min_y, max_x, max_y);
+
+    // 3. Check for intersections ONLY against those nearby segments
+    for (Vertex* curr : nearby_segments) {
+        Vertex* next_v = curr->next;
+        
+        // Skip the specific segments we are actively removing
+        if (curr == cand.a || curr == cand.b || curr == cand.c) {
+            continue;
+        }
+        
+        // Check new segment A->E (Skip checking against segments sharing A)
+        if (curr != cand.a->prev && next_v != cand.a) {
+            if (segments_intersect(cand.a->x, cand.a->y, cand.e_x, cand.e_y, 
+                                   curr->x, curr->y, next_v->x, next_v->y)) return false;
+        }
+        
+        // Check new segment E->D (Skip checking against segments sharing D)
+        if (curr != cand.d && next_v != cand.d->next) {
+            if (segments_intersect(cand.e_x, cand.e_y, cand.d->x, cand.d->y, 
+                                   curr->x, curr->y, next_v->x, next_v->y)) return false;
+        }
     }
     return true;
 }
@@ -226,8 +227,8 @@ double simplify_polygon(std::vector<Ring>& polygon, int target_vertices) {
             continue; 
         }
 
-        // 3. Verify topology [cite: 137]
-        if (!is_collapse_valid(polygon, best)) {
+        // 3. Verify topology 
+        if (!is_collapse_valid(grid, best)) {
             continue; 
         }
 
