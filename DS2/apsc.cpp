@@ -39,6 +39,103 @@ CollapseCandidate evaluate_collapse(Vertex* a, Vertex* b, Vertex* c, Vertex* d) 
 }
 
 // ---------------------------------------------------------
+// Spatial Index Implementation
+// ---------------------------------------------------------
+
+void SpatialGrid::build(const std::vector<Ring>& polygon) {
+    grid.clear();
+    if (polygon.empty()) return;
+
+    // 1. Find the bounding box of the entire polygon
+    min_x = min_y = 1e9;
+    max_x = max_y = -1e9;
+    int total_vertices = 0;
+
+    for (const auto& ring : polygon) {
+        if (ring.active_vertex_count < 3) continue;
+        Vertex* curr = ring.head;
+        do {
+            if (curr->x < min_x) min_x = curr->x;
+            if (curr->y < min_y) min_y = curr->y;
+            if (curr->x > max_x) max_x = curr->x;
+            if (curr->y > max_y) max_y = curr->y;
+            total_vertices++;
+            curr = curr->next;
+        } while (curr != ring.head);
+    }
+
+    // 2. Determine a dynamic cell size (Aiming for roughly sqrt(N) grid cells)
+    double width = max_x - min_x;
+    double height = max_y - min_y;
+    int grid_dim = std::max(10, (int)std::sqrt(total_vertices));
+    cell_size = std::max(width, height) / grid_dim;
+    if (cell_size < 1e-6) cell_size = 1.0; // Prevent divide by zero
+
+    // 3. Insert all active segments
+    for (const auto& ring : polygon) {
+        if (ring.active_vertex_count < 3) continue;
+        Vertex* curr = ring.head;
+        do {
+            insert_segment(curr);
+            curr = curr->next;
+        } while (curr != ring.head);
+    }
+}
+
+void SpatialGrid::insert_segment(Vertex* v) {
+    if (!v->is_active || !v->next->is_active) return;
+    
+    // Find the bounding box of this single line segment
+    double s_min_x = std::min(v->x, v->next->x);
+    double s_max_x = std::max(v->x, v->next->x);
+    double s_min_y = std::min(v->y, v->next->y);
+    double s_max_y = std::max(v->y, v->next->y);
+
+    int start_cx = std::floor((s_min_x - min_x) / cell_size);
+    int end_cx = std::floor((s_max_x - min_x) / cell_size);
+    int start_cy = std::floor((s_min_y - min_y) / cell_size);
+    int end_cy = std::floor((s_max_y - min_y) / cell_size);
+
+    // Insert the segment into every cell its bounding box overlaps
+    for (int x = start_cx; x <= end_cx; ++x) {
+        for (int y = start_cy; y <= end_cy; ++y) {
+            grid[get_cell_key(x, y)].push_back(v);
+        }
+    }
+}
+
+void SpatialGrid::remove_segment(Vertex* v) {
+    // Note: To keep things incredibly fast, we actually use "Lazy Deletion" for the grid too.
+    // We don't actively search and erase vectors here. 
+    // We just filter out inactive vertices when we retrieve them in get_candidates.
+}
+
+std::unordered_set<Vertex*> SpatialGrid::get_candidates(double box_min_x, double box_min_y, 
+                                                        double box_max_x, double box_max_y) const {
+    std::unordered_set<Vertex*> candidates;
+    
+    int start_cx = std::floor((box_min_x - min_x) / cell_size);
+    int end_cx = std::floor((box_max_x - min_x) / cell_size);
+    int start_cy = std::floor((box_min_y - min_y) / cell_size);
+    int end_cy = std::floor((box_max_y - min_y) / cell_size);
+
+    for (int x = start_cx; x <= end_cx; ++x) {
+        for (int y = start_cy; y <= end_cy; ++y) {
+            auto it = grid.find(get_cell_key(x, y));
+            if (it != grid.end()) {
+                for (Vertex* v : it->second) {
+                    // Only return segments that are still active
+                    if (v->is_active && v->next->is_active) {
+                        candidates.insert(v);
+                    }
+                }
+            }
+        }
+    }
+    return candidates;
+}
+
+// ---------------------------------------------------------
 // Topology & Intersection Helpers
 // ---------------------------------------------------------
 
@@ -95,6 +192,9 @@ double simplify_polygon(std::vector<Ring>& polygon, int target_vertices) {
     std::set<CollapseCandidate> pq;
     int total_active_vertices = 0;
 
+    SpatialGrid grid;
+    grid.build(polygon);
+
     // 1. Initial Evaluation
     for (auto& ring : polygon) {
         total_active_vertices += ring.active_vertex_count;
@@ -137,6 +237,9 @@ double simplify_polygon(std::vector<Ring>& polygon, int target_vertices) {
         
         best.b->next = best.d;
         best.d->prev = best.b;
+
+        grid.insert_segment(best.a); // Inserts the new A -> E segment
+        grid.insert_segment(best.b); // Inserts the new E -> D segment
 
         total_active_vertices--;
         total_displacement += best.displacement;
