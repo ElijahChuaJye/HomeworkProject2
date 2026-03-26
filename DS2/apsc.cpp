@@ -1,6 +1,7 @@
 #include "apsc.h"
 #include <iostream>
 #include <algorithm>
+#include <limits>
 
 // ---------------------------------------------------------
 // Core Math Functions
@@ -20,11 +21,23 @@ CollapseCandidate evaluate_collapse(Vertex* a, Vertex* b, Vertex* c, Vertex* d) 
     double area_BCD = calculate_signed_area(b->x, b->y, c->x, c->y, d->x, d->y);
     double area_ABC = calculate_signed_area(a->x, a->y, b->x, b->y, c->x, c->y);
     double denominator = area_BCD - area_ABC;
-    
+
     double t;
+    // The Kronenfeld paper states: if AD is parallel to BC, Area(ABC) == Area(BCD).
+    // It is mathematically impossible to place E on BC to preserve area.
     if (std::abs(denominator) < 1e-9) {
-        t = 0.5; // Default to midpoint if lines are parallel
-    } else {
+        if (std::abs(area_BCD) < 1e-9) {
+            t = 0.5; // Edge case: B, C, and D are perfectly collinear. Any t works.
+        }
+        else {
+            // INVALID COLLAPSE: No area-preserving point exists!
+            // Mark with infinite penalty so it is never chosen.
+            cand.displacement = std::numeric_limits<double>::infinity();
+            cand.score = std::numeric_limits<double>::infinity();
+            return cand;
+        }
+    }
+    else {
         t = area_BCD / denominator;
     }
 
@@ -33,8 +46,19 @@ CollapseCandidate evaluate_collapse(Vertex* a, Vertex* b, Vertex* c, Vertex* d) 
 
     double area_ABE = calculate_signed_area(a->x, a->y, b->x, b->y, cand.e_x, cand.e_y);
     double area_CDE = calculate_signed_area(c->x, c->y, d->x, d->y, cand.e_x, cand.e_y);
-    
     cand.displacement = std::abs(area_ABE) + std::abs(area_CDE);
+
+    // ---------------------------------------------------------
+    // APPROACH 3: Look-Ahead Heuristic Enhancement
+    // ---------------------------------------------------------
+    double look_ahead_penalty = 0.0;
+    if (a->prev != nullptr && d->next != nullptr) {
+        double future_disp_left = std::abs(calculate_signed_area(a->prev->x, a->prev->y, a->x, a->y, cand.e_x, cand.e_y));
+        double future_disp_right = std::abs(calculate_signed_area(cand.e_x, cand.e_y, d->x, d->y, d->next->x, d->next->y));
+        look_ahead_penalty = (future_disp_left + future_disp_right) * 0.15;
+    }
+
+    cand.score = cand.displacement + look_ahead_penalty;
     return cand;
 }
 
@@ -215,51 +239,55 @@ double simplify_polygon(std::vector<Ring>& polygon, int target_vertices) {
         CollapseCandidate best = *it;
         pq.erase(it);
 
-        // Lazy Deletion 1: Check if the sequence was broken by a previous collapse
-        if (!best.b->is_active || !best.c->is_active || 
+        // Lazy Deletion 1: Sequence Broken Check
+        if (!best.b->is_active || !best.c->is_active ||
             best.a->next != best.b || best.b->next != best.c || best.c->next != best.d) {
-            continue; 
+            continue;
         }
 
-        // Lazy Deletion 2: Stale Data Check (Verify math hasn't changed due to neighboring morphs)
+        // Lazy Deletion 2: Stale Data Check 
         CollapseCandidate current_state = evaluate_collapse(best.a, best.b, best.c, best.d);
-        if (std::abs(best.displacement - current_state.displacement) > 1e-9) {
-            continue; 
+
+        // Catch the infinity (invalidated collapse) OR a mismatched score
+        if (std::isinf(current_state.score) || std::abs(best.score - current_state.score) > 1e-9) {
+            continue;
         }
 
-        // 3. Verify topology 
-        if (!is_collapse_valid(grid, best)) {
-            continue; 
+        // 3. Verify topology (Make sure to pass current_state, not best!)
+        if (!is_collapse_valid(grid, current_state)) {
+            continue;
         }
 
-        // 4. Apply the Collapse
-        best.b->x = best.e_x;
-        best.b->y = best.e_y;
-        best.c->is_active = false;
-        
-        best.b->next = best.d;
-        best.d->prev = best.b;
+        // 4. Apply the Collapse using the safely validated current_state
+        current_state.b->x = current_state.e_x;
+        current_state.b->y = current_state.e_y;
+        current_state.c->is_active = false;
 
-        grid.insert_segment(best.a); // Inserts the new A -> E segment
-        grid.insert_segment(best.b); // Inserts the new E -> D segment
+        current_state.b->next = current_state.d;
+        current_state.d->prev = current_state.b;
+
+        grid.insert_segment(current_state.a);
+        grid.insert_segment(current_state.b);
 
         total_active_vertices--;
-        total_displacement += best.displacement;
+
+        // We only add the true geometric displacement, not the score penalty
+        total_displacement += current_state.displacement;
 
         // Update ring metadata
         for (auto& ring : polygon) {
-            if (ring.ring_id == best.b->ring_id) {
+            if (ring.ring_id == current_state.b->ring_id) {
                 ring.active_vertex_count--;
-                if (ring.head == best.c) {
-                    ring.head = best.b;
+                if (ring.head == current_state.c) {
+                    ring.head = current_state.b;
                 }
                 break;
             }
         }
 
-        // 5. Re-evaluate the affected neighborhood (All 4 overlapping sequences)
-        if (best.b->ring_id >= 0) { 
-            Vertex* e = best.b;
+        // 5. Re-evaluate the affected neighborhood
+        if (current_state.b->ring_id >= 0) {
+            Vertex* e = current_state.b;
             Vertex* a = e->prev;
             Vertex* prev_a = a->prev;
             Vertex* d = e->next;

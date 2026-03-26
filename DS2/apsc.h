@@ -8,26 +8,23 @@
 #include <unordered_set>
 
 // Represents a potential collapse of the segment between vertex B and C into a new point E.
+// Represents a potential collapse of the segment between vertex B and C into a new point E.
 struct CollapseCandidate {
-    double displacement;
+    double displacement; // The true geometric displacement
+    double score;        // NEW: displacement + Look-Ahead penalty for sorting
     
-    // Pointers to the 4 vertices involved to easily update the linked list later
     Vertex* a;
     Vertex* b;
     Vertex* c;
     Vertex* d;
     
-    // The calculated coordinates for the new area-preserving point E
     double e_x;
     double e_y;
 
-    // Custom comparator for std::set so it acts as a priority queue.
-    // It sorts by smallest displacement first. 
+    // The Priority Queue now sorts based on the heuristically penalized SCORE
     bool operator<(const CollapseCandidate& other) const {
-        // Strict weak ordering: If displacements are identical, use IDs as tie-breakers 
-        // to prevent the set from overwriting unique, identical-scoring candidates.
-        if (std::abs(displacement - other.displacement) > 1e-9) {
-            return displacement < other.displacement;
+        if (std::abs(score - other.score) > 1e-9) {
+            return score < other.score;
         }
         if (b->id != other.b->id) {
             return b->id < other.b->id;

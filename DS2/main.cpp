@@ -156,10 +156,21 @@ int main(int argc, char* argv[]) {
     std::vector<Ring> polygon;
     try {
         polygon = load_polygon_from_csv(input_file);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         std::cerr << e.what() << "\n";
         return 1;
     }
+
+    // ---------------------------------------------------------
+    // NEW CHECK: Warn the user if target is too high
+    // ---------------------------------------------------------
+    int initial_total_vertices = 0;
+    for (const auto& ring : polygon) {
+        initial_total_vertices += ring.active_vertex_count;
+    }
+
+    // ---------------------------------------------------------
 
     double input_area = calculate_total_area(polygon);
 
@@ -178,28 +189,36 @@ int main(int argc, char* argv[]) {
 
     int out_ring_id = 0;
     for (const auto& ring : polygon) {
-        if (ring.active_vertex_count < 3) continue; 
+        if (ring.active_vertex_count < 3) continue;
 
         int out_vertex_id = 0;
         Vertex* curr = ring.head;
         do {
             if (curr->is_active) {
-                std::cout << out_ring_id << "," 
-                          << out_vertex_id << ","
-                          << curr->x << "," 
-                          << curr->y << "\n";
+                std::cout << out_ring_id << ","
+                    << out_vertex_id << ","
+                    << curr->x << ","
+                    << curr->y << "\n";
                 out_vertex_id++;
             }
             curr = curr->next;
         } while (curr != ring.head);
-        
+
         out_ring_id++;
     }
 
     std::cout << std::scientific << std::setprecision(6);
     std::cout << "Total signed area in input: " << input_area << "\n";
     std::cout << "Total signed area in output: " << output_area << "\n";
-    std::cout << "Total areal displacement: " << total_displacement << "\n";
+    std::cout << "Total area displacement: " << total_displacement << "\n";
+
+
+    if (target_vertices >= initial_total_vertices) {
+        std::cerr << "\n*** NOTE: The input polygon only has " << initial_total_vertices
+            << " vertices. ***\n"
+            << "*** Please enter a target number smaller than " << initial_total_vertices
+            << " to actually simplify the shape. ***\n\n";
+    }
 
     // Prevent memory leaks
     for (auto& ring : polygon) {
