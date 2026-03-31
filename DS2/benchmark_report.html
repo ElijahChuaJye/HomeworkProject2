@@ -1,127 +1,4 @@
-#pragma once
-
-#include <iostream>
-#include <string>
-#include <vector>
-#include <chrono>
-#include <sys/resource.h>
-#include <cmath>
-#include <fstream>
-#include <algorithm>
-#include "geometry.h"
-#include "apsc.h"
-#include "json.hpp" 
-
-using json = nlohmann::json;
-
-struct TestCase {
-    std::string filename;
-    std::string property;
-    std::string challenge;
-    int target_vertices;
-};
-
-class BenchmarkSuite {
-private:
-    long get_peak_memory_kb() {
-        struct rusage usage;
-        getrusage(RUSAGE_SELF, &usage);
-        return usage.ru_maxrss;
-    }
-
-    double fit_n_log_n(const std::vector<int>& n_vals, const std::vector<double>& times) {
-        double sum_uy = 0.0, sum_uu = 0.0;
-        for (size_t i = 0; i < n_vals.size(); ++i) {
-            double u = n_vals[i] * std::log2(n_vals[i] > 0 ? n_vals[i] : 1);
-            sum_uy += u * times[i];
-            sum_uu += u * u;
-        }
-        return (sum_uu > 0) ? (sum_uy / sum_uu) : 0.0;
-    }
-
-    double fit_linear(const std::vector<int>& n_vals, const std::vector<double>& memory) {
-        double sum_xy = 0.0, sum_xx = 0.0;
-        for (size_t i = 0; i < n_vals.size(); ++i) {
-            sum_xy += (double)n_vals[i] * memory[i];
-            sum_xx += (double)n_vals[i] * n_vals[i];
-        }
-        return (sum_xx > 0) ? (sum_xy / sum_xx) : 0.0;
-    }
-
-public:
-    void run() {
-        std::vector<TestCase> tests = {
-            // --- SCALING TESTS ---
-            {"test_cases/test_0001000.csv", "Small Scale", "Baseline check for O(n log n) overhead", 500},
-            {"test_cases/test_0002000.csv", "Small Scale", "Testing linked list pointer consistency", 1000},
-            {"test_cases/test_0005000.csv", "Medium Scale", "Evaluating priority queue build time", 2500},
-            {"test_cases/test_0010000.csv", "Medium Scale", "Testing spatial grid cell distribution", 5000},
-            {"test_cases/test_0025000.csv", "Large Scale", "Measuring memory growth as n increases", 12500},
-            {"test_cases/test_0100000.csv", "Large Scale", "Competitive benchmark (Rubric Threshold)", 50000},
-            {"test_cases/test_0250000.csv", "Extreme Scale", "Stress testing large-scale vertex removal", 100000},
-            {"test_cases/test_0500000.csv", "Extreme Scale", "Proving efficiency at 5x the rubric threshold", 250000},
-
-            // --- DISPLACEMENT CURVE TESTS ---
-            {"test_cases/test_0010000.csv", "Displacement Curve", "90% vertex retention (Minimal error)", 9000},
-            {"test_cases/test_0010000.csv", "Displacement Curve", "50% vertex retention (Moderate error)", 5000},
-            {"test_cases/test_0010000.csv", "Displacement Curve", "10% vertex retention (High error)", 1000},
-            {"test_cases/test_0010000.csv", "Displacement Curve", "Max simplification (Topology limit)", 100}
-        };
-
-        json data_values = json::array();
-        std::vector<int> n_vals;
-        std::vector<double> times;
-        std::vector<double> mems;
-
-        std::cerr << "\n--- Running APSC Benchmark Suite ---\n" << std::endl;
-
-        for (const auto& test : tests) {
-            std::cerr << "Processing: " << test.filename << "..." << std::endl;
-            
-            auto load_start = std::chrono::high_resolution_clock::now();
-            std::vector<Ring> polygon;
-            try { polygon = load_polygon_from_csv(test.filename); } 
-            catch (...) { std::cerr << "Error: Skip " << test.filename << std::endl; continue; }
-            auto load_end = std::chrono::high_resolution_clock::now();
-            double load_time = std::chrono::duration<double>(load_end - load_start).count();
-
-            int initial_v = 0;
-            for (const auto& ring : polygon) initial_v += ring.active_vertex_count;
-            
-            auto start_time = std::chrono::high_resolution_clock::now();
-            double displacement = simplify_polygon(polygon, test.target_vertices);
-            auto end_time = std::chrono::high_resolution_clock::now();
-            
-            long peak_mem = get_peak_memory_kb();
-            std::chrono::duration<double> diff = end_time - start_time;
-            
-            n_vals.push_back(initial_v);
-            times.push_back(diff.count());
-            mems.push_back((double)peak_mem);
-            
-            data_values.push_back({
-                {"file", test.filename}, {"property", test.property}, {"challenge", test.challenge},
-                {"n", initial_v}, {"target", test.target_vertices}, {"time", diff.count()},
-                {"load_time", load_time}, 
-                {"memory", peak_mem}, {"displacement", displacement}
-            });
-            for (auto& ring : polygon) ring.cleanup();
-        }
-
-        double c_time = fit_n_log_n(n_vals, times);
-        double c_mem = fit_linear(n_vals, mems);
-        
-        json fit_values = json::array();
-        int max_n = *std::max_element(n_vals.begin(), n_vals.end());
-        for (int i = 0; i <= max_n; i += (max_n / 50 > 0 ? max_n / 50 : 1)) {
-            fit_values.push_back({
-                {"n", i}, {"ideal_time", c_time * (i * std::log2(i > 0 ? i : 1))}, {"ideal_memory", c_mem * i}
-            });
-        }
-
-        std::ofstream file("benchmark_report.html");
-        if (file.is_open()) {
-            file << R"HTML(<!DOCTYPE html><html><head><title>APSC Benchmarks</title>
+<!DOCTYPE html><html><head><title>APSC Benchmarks</title>
             <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
             <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
             <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
@@ -141,7 +18,7 @@ public:
                 h1 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
             </style></head><body><div class="container">
             <h1>APSC Experimental Evaluation</h1>
-            <p><b>Algo Time Fit:</b> $y \approx )HTML" << std::scientific << std::setprecision(5) << c_time << R"HTML( \cdot n \log n$ | <b>Mem Fit:</b> $y \approx )HTML" << std::fixed << std::setprecision(6) << c_mem << R"HTML( \cdot n$</p>
+            <p><b>Algo Time Fit:</b> $y \approx 2.50136e-07 \cdot n \log n$ | <b>Mem Fit:</b> $y \approx 0.380697 \cdot n$</p>
             
             <div class="chart-wrapper">
                 <div id="load_chart" class="chart-container"></div>
@@ -167,8 +44,8 @@ public:
             <tbody id="btable"></tbody></table>
             
             <script>
-                const realData = )HTML" << data_values.dump() << R"HTML(;
-                const fitData = )HTML" << fit_values.dump() << R"HTML(;
+                const realData = [{"challenge":"Baseline check for O(n log n) overhead","displacement":1948142135.3353286,"file":"test_cases/test_0001000.csv","load_time":0.003989349,"memory":3840,"n":1000,"property":"Small Scale","target":500,"time":0.001118166},{"challenge":"Testing linked list pointer consistency","displacement":684132359.6100059,"file":"test_cases/test_0002000.csv","load_time":0.004536521,"memory":4224,"n":2000,"property":"Small Scale","target":1000,"time":0.002566409},{"challenge":"Evaluating priority queue build time","displacement":170549729.57805118,"file":"test_cases/test_0005000.csv","load_time":0.00878258,"memory":4992,"n":5000,"property":"Medium Scale","target":2500,"time":0.007789238},{"challenge":"Testing spatial grid cell distribution","displacement":64083286.84998441,"file":"test_cases/test_0010000.csv","load_time":0.012200143,"memory":6272,"n":10000,"property":"Medium Scale","target":5000,"time":0.014319495},{"challenge":"Measuring memory growth as n increases","displacement":10985377.02375196,"file":"test_cases/test_0025000.csv","load_time":0.028442998,"memory":11392,"n":25000,"property":"Large Scale","target":12500,"time":0.049887025},{"challenge":"Competitive benchmark (Rubric Threshold)","displacement":712954.0598447,"file":"test_cases/test_0100000.csv","load_time":0.106904896,"memory":35968,"n":100000,"property":"Large Scale","target":50000,"time":0.291957558},{"challenge":"Stress testing large-scale vertex removal","displacement":279910.29395064997,"file":"test_cases/test_0250000.csv","load_time":0.267035383,"memory":89160,"n":250000,"property":"Extreme Scale","target":100000,"time":0.650175454},{"challenge":"Proving efficiency at 5x the rubric threshold","displacement":28406.40755020293,"file":"test_cases/test_0500000.csv","load_time":0.545004652,"memory":179524,"n":500000,"property":"Extreme Scale","target":250000,"time":2.61544103},{"challenge":"90% vertex retention (Minimal error)","displacement":991189.2601793896,"file":"test_cases/test_0010000.csv","load_time":0.100834293,"memory":179524,"n":10000,"property":"Displacement Curve","target":9000,"time":0.009059794},{"challenge":"50% vertex retention (Moderate error)","displacement":64083286.84998441,"file":"test_cases/test_0010000.csv","load_time":0.011754582,"memory":179524,"n":10000,"property":"Displacement Curve","target":5000,"time":0.012201996},{"challenge":"10% vertex retention (High error)","displacement":1142105672.6388159,"file":"test_cases/test_0010000.csv","load_time":0.012508584,"memory":179524,"n":10000,"property":"Displacement Curve","target":1000,"time":0.020150954},{"challenge":"Max simplification (Topology limit)","displacement":20880164310.35463,"file":"test_cases/test_0010000.csv","load_time":0.011605807,"memory":179524,"n":10000,"property":"Displacement Curve","target":100,"time":0.021983637}];
+                const fitData = [{"ideal_memory":0.0,"ideal_time":0.0,"n":0},{"ideal_memory":3806.971250251039,"ideal_time":0.03323736210580872,"n":10000},{"ideal_memory":7613.942500502078,"ideal_time":0.07147744569691433,"n":20000},{"ideal_memory":11420.913750753116,"ideal_time":0.11160577525104759,"n":30000},{"ideal_memory":15227.885001004155,"ideal_time":0.15296033436442244,"n":40000},{"ideal_memory":19034.856251255194,"ideal_time":0.1952267094480623,"n":50000},{"ideal_memory":22841.82750150623,"ideal_time":0.23821971495798583,"n":60000},{"ideal_memory":26648.798751757273,"ideal_time":0.28181698648967146,"n":70000},{"ideal_memory":30455.77000200831,"ideal_time":0.32593155467003243,"n":80000},{"ideal_memory":34262.74125225935,"ideal_time":0.370498392554007,"n":90000},{"ideal_memory":38069.71250251039,"ideal_time":0.415467026322609,"n":100000},{"ideal_memory":41876.683752761426,"ideal_time":0.46079713403399303,"n":110000},{"ideal_memory":45683.65500301246,"ideal_time":0.506455758827753,"n":120000},{"ideal_memory":49490.62625326351,"ideal_time":0.552415457714951,"n":130000},{"ideal_memory":53297.597503514546,"ideal_time":0.5986530233764211,"n":140000},{"ideal_memory":57104.56875376558,"ideal_time":0.645148573012294,"n":150000},{"ideal_memory":60911.54000401662,"ideal_time":0.69188488122244,"n":160000},{"ideal_memory":64718.51125426766,"ideal_time":0.738846880297092,"n":170000},{"ideal_memory":68525.4825045187,"ideal_time":0.786021278475686,"n":180000},{"ideal_memory":72332.45375476974,"ideal_time":0.8333962632855019,"n":190000},{"ideal_memory":76139.42500502078,"ideal_time":0.8809612674981869,"n":200000},{"ideal_memory":79946.39625527181,"ideal_time":0.9287067820043643,"n":210000},{"ideal_memory":83753.36750552285,"ideal_time":0.9766242044062519,"n":220000},{"ideal_memory":87560.33875577389,"ideal_time":1.024705715191438,"n":230000},{"ideal_memory":91367.31000602493,"ideal_time":1.0729441754790685,"n":240000},{"ideal_memory":95174.28125627598,"ideal_time":1.1213330418354048,"n":250000},{"ideal_memory":98981.25250652702,"ideal_time":1.1698662947387615,"n":260000},{"ideal_memory":102788.22375677805,"ideal_time":1.2185383780646135,"n":270000},{"ideal_memory":106595.19500702909,"ideal_time":1.2673441475469986,"n":280000},{"ideal_memory":110402.16625728013,"ideal_time":1.3162788266110386,"n":290000},{"ideal_memory":114209.13750753117,"ideal_time":1.3653379683040412,"n":300000},{"ideal_memory":118016.1087577822,"ideal_time":1.4145174223075105,"n":310000},{"ideal_memory":121823.08000803324,"ideal_time":1.4638133062096301,"n":320000},{"ideal_memory":125630.05125828428,"ideal_time":1.5132219803718145,"n":330000},{"ideal_memory":129437.02250853532,"ideal_time":1.562740025844231,"n":340000},{"ideal_memory":133243.99375878635,"ideal_time":1.6123642248814878,"n":350000},{"ideal_memory":137050.9650090374,"ideal_time":1.6620915436867159,"n":360000},{"ideal_memory":140857.93625928843,"ideal_time":1.711919117074279,"n":370000},{"ideal_memory":144664.90750953948,"ideal_time":1.7618442347916445,"n":380000},{"ideal_memory":148471.8787597905,"ideal_time":1.8118643292819314,"n":390000},{"ideal_memory":152278.85001004155,"ideal_time":1.8619769647023117,"n":400000},{"ideal_memory":156085.8212602926,"ideal_time":1.9121798270411725,"n":410000},{"ideal_memory":159892.79251054363,"ideal_time":1.9624707151999632,"n":420000},{"ideal_memory":163699.76376079468,"ideal_time":2.01284753292481,"n":430000},{"ideal_memory":167506.7350110457,"ideal_time":2.0633082814890353,"n":440000},{"ideal_memory":171313.70626129676,"ideal_time":2.1138510530412034,"n":450000},{"ideal_memory":175120.67751154778,"ideal_time":2.1644740245447043,"n":460000},{"ideal_memory":178927.64876179883,"ideal_time":2.2151754522445493,"n":470000},{"ideal_memory":182734.62001204985,"ideal_time":2.2659536666052627,"n":480000},{"ideal_memory":186541.5912623009,"ideal_time":2.316807067670773,"n":490000},{"ideal_memory":190348.56251255196,"ideal_time":2.367734120803232,"n":500000}];
                 const tbody = document.getElementById("btable");
                 
                 realData.forEach(d => {
@@ -258,8 +135,4 @@ public:
                         "color": {"field": "file", "type": "nominal", "legend": {"title": "Source Dataset"}}
                     }
                 });
-            </script></div></body></html>)HTML";
-            file.close();
-        }
-    }
-};
+            </script></div></body></html>

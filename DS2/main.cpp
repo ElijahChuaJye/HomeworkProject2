@@ -5,14 +5,10 @@
 #include <fstream>
 #include <chrono>
 #include <sys/resource.h>
-#include <cmath>
-#include <algorithm>
 
 #include "geometry.h"
 #include "apsc.h"
-#include "benchmark.h"
-
-// Include the nlohmann JSON library
+#include "benchmark.h" 
 #include "json.hpp" 
 
 using json = nlohmann::json;
@@ -43,165 +39,169 @@ double calculate_total_area(const std::vector<Ring>& polygon) {
 }
 
 // ---------------------------------------------------------
-// 1. Presentation Visualizer (Stats + Graph on Screen)
+// Presentation Visualizer (Red vs Blue Dashboard)
 // ---------------------------------------------------------
-void export_presentation_html(const std::vector<Ring>& polygon, const std::string& filename, 
+void export_presentation_html(const json& orig_vals, const json& simp_vals, const std::string& filename, 
                               double in_area, double out_area, double disp, 
-                              double time_sec, long mem_kb, int start_v, int end_v) {
-    json data_values = json::array();
-    for (const auto& ring : polygon) {
-        if (ring.active_vertex_count < 3) continue;
-        int order = 0;
-        Vertex* curr = ring.head;
-        Vertex* first_vertex = nullptr;
-        do {
-            if (curr->is_active) {
-                if (!first_vertex) first_vertex = curr;
-                data_values.push_back({{"x", curr->x}, {"y", curr->y}, {"ring_id", std::to_string(ring.ring_id)}, {"order", order++}});
-            }
-            curr = curr->next;
-        } while (curr != ring.head);
-        if (first_vertex) {
-            data_values.push_back({{"x", first_vertex->x}, {"y", first_vertex->y}, {"ring_id", std::to_string(ring.ring_id)}, {"order", order}});
-        }
-    }
+                              double algo_time_sec, long mem_kb, int start_v, int end_v,
+                              double load_time_sec, long baseline_mem_kb) {
+    
+    json geom_data = json::array({
+        {{"category", "Vertices"}, {"type", "Initial"}, {"value", start_v}},
+        {{"category", "Vertices"}, {"type", "Final"}, {"value", end_v}}
+    });
+
+    // FIX: Blue (Final) now represents the FULL time (Load + Algo)
+    double total_program_time = load_time_sec + algo_time_sec;
+
+    json perf_data = json::array({
+        {{"category", "Time (s)"}, {"type", "Initial"}, {"value", load_time_sec}},
+        {{"category", "Time (s)"}, {"type", "Final"}, {"value", total_program_time}},
+        {{"category", "Peak Mem (KB)"}, {"type", "Initial"}, {"value", baseline_mem_kb}},
+        {{"category", "Peak Mem (KB)"}, {"type", "Final"}, {"value", mem_kb}}
+    });
+
+    json err_data = json::array({
+        {{"category", "Areal Displacement"}, {"type", "Initial"}, {"value", 0.0}},
+        {{"category", "Areal Displacement"}, {"type", "Final"}, {"value", disp}}
+    });
 
     std::ofstream file(filename);
     if (file.is_open()) {
         file << R"HTML(<!DOCTYPE html>
 <html>
 <head>
-  <title>APSC Presentation View</title>
-  <script src="https://cdn.jsdelivr.net/npm/vega@5.25.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5.15.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6.22.2"></script>
+  <title>APSC Presentation Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f6;}
-    .sidebar { width: 350px; background: #2c3e50; color: white; padding: 30px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); overflow-y: auto;}
+    body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f6;}
+    .sidebar { width: 450px; background: #2c3e50; color: white; padding: 20px; overflow-y: auto;}
     .main { flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 20px;}
-    .stat-box { background: #34495e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #3498db;}
-    h1 { margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 10px; font-size: 24px;}
-    .val { font-size: 1.2em; font-weight: bold; color: #2ecc71; display: block; margin-top: 5px;}
-    .val.err { color: #e74c3c; }
+    h1 { margin-top: 0; border-bottom: 2px solid #e74c3c; padding-bottom: 10px; font-size: 24px;}
+    .stat-box { background: #34495e; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #3498db;}
+    .val { font-size: 1.05em; font-weight: bold; display: block; margin-top: 5px;}
+    .chart-container { background: white; padding: 10px; border-radius: 8px; margin-bottom: 15px;}
+    .explainer { font-size: 0.85em; color: #bdc3c7; margin-bottom: 10px; }
   </style>
 </head>
 <body>
   <div class="sidebar">
-    <h1>Algorithm Stats</h1>
-    <div class="stat-box">Hardware Metrics
-        <span class="val">Time: )HTML" << std::fixed << std::setprecision(4) << time_sec << R"HTML( s</span>
-        <span class="val">Peak Mem: )HTML" << mem_kb << R"HTML( KB</span>
+    <h1>Algorithm Execution Stats</h1>
+    <p class="explainer">Red = Initial State / Data Load Time<br>Blue = Final State / Total Run Time</p>
+    
+    <div class="stat-box">Area Details
+        <span class="val" style="color:#f1c40f">Input Area: )HTML" << std::scientific << std::setprecision(6) << in_area << R"HTML(</span>
+        <span class="val" style="color:#f1c40f">Output Area: )HTML" << out_area << R"HTML(</span>
+        <span class="val" style="color:#e74c3c">Displacement: )HTML" << disp << R"HTML(</span>
     </div>
-    <div class="stat-box">Vertex Reduction
-        <span class="val">Input: )HTML" << start_v << R"HTML( vertices</span>
-        <span class="val">Output: )HTML" << end_v << R"HTML( vertices</span>
-    </div>
-    <div class="stat-box">Accuracy (Areal)
-        <span class="val">Input Area: )HTML" << std::scientific << std::setprecision(4) << in_area << R"HTML(</span>
-        <span class="val">Output Area: )HTML" << out_area << R"HTML(</span>
-        <span class="val err">Displacement: )HTML" << disp << R"HTML(</span>
-    </div>
+
+    <div class="chart-container" id="geom_chart"></div>
+    <div class="chart-container" id="perf_chart"></div>
+    <div class="chart-container" id="err_chart"></div>
   </div>
+  
   <div class="main"><div id="vis"></div></div>
+  
   <script>
-    const spec = {
+    const origData = )HTML" << orig_vals.dump() << R"HTML(;
+    const simpData = )HTML" << simp_vals.dump() << R"HTML(;
+    const geomData = )HTML" << geom_data.dump() << R"HTML(;
+    const perfData = )HTML" << perf_data.dump() << R"HTML(;
+    const errData = )HTML" << err_data.dump() << R"HTML(;
+
+    vegaEmbed('#vis', {
       "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-      "width": 700, "height": 700,
-      "mark": {"type": "line", "point": true, "strokeWidth": 2},
-      "data": {"values": )HTML" << data_values.dump() << R"HTML(},
+      "width": 650, "height": 650, 
+      "title": {"text": "Shape Overlay", "subtitle": "Red Glow = Initial Shape | Blue Dashed = Simplified Polygon"},
+      "layer": [
+        {
+          "data": {"values": origData},
+          "mark": {"type": "line", "point": {"size": 10, "color": "#e74c3c"}, "color": "#e74c3c", "strokeWidth": 7, "opacity": 1.0},
+          "encoding": {
+            "x": {"field": "x", "type": "quantitative", "scale": {"zero": false}},
+            "y": {"field": "y", "type": "quantitative", "scale": {"zero": false}},
+            "order": {"field": "order", "type": "quantitative"},
+            "detail": {"field": "ring_id"}
+          }
+        },
+        {
+          "data": {"values": simpData},
+          "mark": {"type": "line", "point": {"size": 20, "color": "#2980b9"}, "color": "#113f60", "strokeWidth": 2, "opacity": 1.0, "strokeDash": [6, 4]},
+          "encoding": {
+            "x": {"field": "x", "type": "quantitative", "scale": {"zero": false}},
+            "y": {"field": "y", "type": "quantitative", "scale": {"zero": false}},
+            "detail": {"field": "ring_id"},
+            "order": {"field": "order", "type": "quantitative"}
+          }
+        }
+      ]
+    });
+
+    vegaEmbed('#geom_chart', {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "data": {"values": geomData},
+      "facet": {"field": "category", "type": "nominal", "header": {"title": null}},
+      "spec": {
+        "width": 100, "height": 70,
+        "layer": [
+          {"mark": {"type": "bar", "cornerRadiusEnd": 4}},
+          {"mark": {"type": "text", "align": "center", "baseline": "bottom", "dy": -3, "fontSize": 11, "color": "black"}, "encoding": {"text": {"field": "value", "type": "quantitative", "format": ".3g"}}}
+        ],
+        "encoding": {
+          "x": {"field": "type", "type": "nominal", "axis": {"title": "", "labels": false, "ticks": false}},
+          "y": {"field": "value", "type": "quantitative", "axis": {"title": "Count"}},
+          "color": {"field": "type", "type": "nominal", "scale": {"domain": ["Initial", "Final"], "range": ["#e74c3c", "#3498db"]}, "legend": {"title": "State", "orient": "bottom"}}
+        }
+      },
+      "resolve": {"scale": {"y": "independent"}}
+    });
+
+    // FIX: Added text layer to print exact values on top of the bars
+    vegaEmbed('#perf_chart', {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "description": "Comparison of Loading vs Processing",
+      "data": {"values": perfData},
+      "facet": {"field": "category", "type": "nominal", "header": {"title": null}},
+      "spec": {
+        "width": 100, "height": 80,
+        "layer": [
+          {"mark": {"type": "bar", "cornerRadiusEnd": 4}},
+          {"mark": {"type": "text", "align": "center", "baseline": "bottom", "dy": -2, "fontSize": 10, "color": "black"}, 
+           "encoding": {"text": {"field": "value", "type": "quantitative", "format": ".3g"}}}
+        ],
+        "encoding": {
+          "x": {"field": "type", "type": "nominal", "axis": {"title": null, "labelAngle": 0}},
+          "y": {"field": "value", "type": "quantitative", "axis": {"title": null}},
+          "color": {
+            "field": "type", "type": "nominal", 
+            "scale": {"domain": ["Initial", "Final"], "range": ["#e74c3c", "#3498db"]},
+            "legend": null
+          }
+        }
+      },
+      "resolve": {"scale": {"y": "independent"}}
+    });
+
+    vegaEmbed('#err_chart', {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      "width": 300, "height": 50, "title": "Accuracy Penalty",
+      "data": {"values": errData},
+      "layer": [
+        {"mark": {"type": "bar", "cornerRadiusEnd": 4}},
+        {"mark": {"type": "text", "align": "left", "baseline": "middle", "dx": 5, "fontSize": 11, "color": "black"}, "encoding": {"text": {"field": "value", "type": "quantitative", "format": ".3e"}}}
+      ],
       "encoding": {
-        "x": {"field": "x", "type": "quantitative", "scale": {"zero": false}},
-        "y": {"field": "y", "type": "quantitative", "scale": {"zero": false}},
-        "color": {"field": "ring_id", "type": "nominal"},
-        "order": {"field": "order", "type": "quantitative"}
+        "x": {"field": "value", "type": "quantitative", "axis": {"title": "Total Areal Displacement"}},
+        "y": {"field": "type", "type": "nominal", "axis": {"title": ""}},
+        "color": {"field": "type", "type": "nominal", "scale": {"domain": ["Initial", "Final"], "range": ["#e74c3c", "#3498db"]}, "legend": null}
       }
-    };
-    vegaEmbed('#vis', spec);
-  </script>
-</body>
-</html>)HTML";
-        file.close();
-        std::cerr << "Presentation View generated: " << filename << "\n";
-    }
-}
-
-// ---------------------------------------------------------
-// 2. Automated Graph Generator (For Rubric Requirements)
-// ---------------------------------------------------------
-void run_graph_generator() {
-    struct TestCase { std::string file; std::string prop; int target; };
-    
-    // UPDATE THESE FILES to match your actual test_cases directory!
-    std::vector<TestCase> tests = {
-        {"test_cases/small_blob.csv", "Space/Time Scaling", 10},
-        {"test_cases/input_blob_with_two_holes.csv", "Space/Time Scaling", 15},
-        // To show displacement curves, use the SAME file but drop the target vertices
-        {"test_cases/input_blob_with_two_holes.csv", "Displacement Curve", 30},
-        {"test_cases/input_blob_with_two_holes.csv", "Displacement Curve", 20},
-        {"test_cases/input_blob_with_two_holes.csv", "Displacement Curve", 10}
-    };
-
-    json data_vals = json::array();
-    std::cerr << "Generating required graphs...\n";
-
-    for (const auto& t : tests) {
-        auto poly = load_polygon_from_csv(t.file);
-        int n = 0; for (const auto& r : poly) n += r.active_vertex_count;
-        
-        auto start = std::chrono::high_resolution_clock::now();
-        double disp = simplify_polygon(poly, t.target);
-        auto end = std::chrono::high_resolution_clock::now();
-        
-        data_vals.push_back({
-            {"file", t.file}, {"property", t.prop}, {"n", n}, {"target", t.target},
-            {"time", std::chrono::duration<double>(end - start).count()},
-            {"memory", get_peak_memory_kb()}, {"displacement", disp}
-        });
-        for (auto& r : poly) r.cleanup();
-    }
-
-    std::ofstream file("graphs.html");
-    if (file.is_open()) {
-        file << R"HTML(<!DOCTYPE html>
-<html>
-<head>
-  <title>Experimental Evaluation Graphs</title>
-  <script src="https://cdn.jsdelivr.net/npm/vega@5.25.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5.15.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6.22.2"></script>
-  <style> body{font-family: sans-serif; margin:40px; background:#f9f9f9;} .chart{display:inline-block; width:45%; background:white; padding:15px; margin:10px; box-shadow:0 2px 5px rgba(0,0,0,0.1);}</style>
-</head>
-<body>
-  <h1>Algorithm Complexity & Accuracy Graphs</h1>
-  <div id="time_chart" class="chart"></div>
-  <div id="mem_chart" class="chart"></div>
-  <div id="disp_chart" class="chart" style="width: 93%;"></div>
-
-  <script>
-    const data = )HTML" << data_vals.dump() << R"HTML(;
-    
-    vegaEmbed('#time_chart', {
-      "$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Time Complexity (Time vs Input Size)",
-      "data": {"values": data.filter(d => d.property === "Space/Time Scaling")},
-      "mark": {"type": "line", "point": true}, "encoding": {"x": {"field": "n", "type": "quantitative", "title": "Initial Vertices"}, "y": {"field": "time", "type": "quantitative", "title": "Seconds"}}
-    });
-
-    vegaEmbed('#mem_chart', {
-      "$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Space Complexity (Peak Mem vs Input Size)",
-      "data": {"values": data.filter(d => d.property === "Space/Time Scaling")},
-      "mark": {"type": "line", "point": true}, "encoding": {"x": {"field": "n", "type": "quantitative", "title": "Initial Vertices"}, "y": {"field": "memory", "type": "quantitative", "title": "Peak Memory (KB)"}}
-    });
-
-    vegaEmbed('#disp_chart', {
-      "$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Accuracy (Areal Displacement vs Target)",
-      "data": {"values": data.filter(d => d.property === "Displacement Curve")},
-      "mark": {"type": "line", "point": true}, "encoding": {"x": {"field": "target", "type": "quantitative", "sort": "descending", "title": "Target Vertices (Lower is more simplified)"}, "y": {"field": "displacement", "type": "quantitative", "title": "Areal Displacement Error"}, "color": {"field": "file", "type": "nominal"}}
     });
   </script>
 </body>
 </html>)HTML";
         file.close();
-        std::cerr << "SUCCESS: Opened graphs.html in your browser to see the graphs!\n";
     }
 }
 
@@ -209,80 +209,91 @@ void run_graph_generator() {
 // Main Driver
 // ---------------------------------------------------------
 int main(int argc, char* argv[]) {
-
     if (argc == 2 && std::string(argv[1]) == "--benchmark") {
-    // Rubric-Specific Test Suite
-    std::vector<TestCase> suite = {
-        // (a) & (b): Scaling Tests (High Vertex Count)
-        {"test_cases/city_map_10k.csv", "High Vertex Count", "Tests O(n log n) priority queue and O(1) ring updates.", 5000},
-        {"test_cases/country_map_50k.csv", "High Vertex Count", "Verifies scaling logic as data size increases 5x.", 25000},
-        {"test_cases/continent_100k.csv", "High Vertex Count", "Required by rubric to show competitive time on 100k+ vertices.", 50000},
-
-        // Targeted Property Tests
-        {"test_cases/swiss_cheese.csv", "Large Number of Holes", "Tests spatial grid efficiency with many internal boundaries.", 500},
-        {"test_cases/coastline_jagged.csv", "Narrow Gaps", "Tests if intersection checks prevent rings from touching in thin areas.", 1000},
-        {"test_cases/grid_aligned.csv", "Near-Degeneracies", "Tests floating-point stability with collinear points and zero areas.", 200},
-
-        // (c): Displacement vs. Target (Using one complex file at different levels)
-        {"test_cases/continent_100k.csv", "Displacement Curve", "90% simplification", 90000},
-        {"test_cases/continent_100k.csv", "Displacement Curve", "70% simplification", 70000},
-        {"test_cases/continent_100k.csv", "Displacement Curve", "50% simplification", 50000},
-        {"test_cases/continent_100k.csv", "Displacement Curve", "30% simplification", 30000},
-        {"test_cases/continent_100k.csv", "Displacement Curve", "10% simplification", 10000}
-    };
-
-    BenchmarkSuite runner;
-    runner.run_and_export_html(suite);
-    return 0;
-}
-
+        BenchmarkSuite suite;
+        suite.run();
+        return 0;
+    }
 
     if (argc != 3) {
-        std::cerr << "Usage for Presentation: ./simplify <input_file.csv> <target_vertices>\n";
-        std::cerr << "Usage for Graphs:       ./simplify --benchmark\n";
+        std::cerr << "Usage: ./simplify <input_file.csv> <target_vertices>\n";
+        std::cerr << "       ./simplify --benchmark\n";
         return 1;
     }
 
     std::string input_file = argv[1];
     int target_vertices = std::stoi(argv[2]);
 
+    long baseline_mem = get_peak_memory_kb();
+
+    // Load Phase
+    auto load_start = std::chrono::high_resolution_clock::now();
     std::vector<Ring> polygon;
     try { polygon = load_polygon_from_csv(input_file); }
     catch (const std::exception& e) { std::cerr << e.what() << "\n"; return 1; }
+    auto load_end = std::chrono::high_resolution_clock::now();
+    double load_time = std::chrono::duration<double>(load_end - load_start).count();
 
     int start_v = 0;
     for (const auto& ring : polygon) start_v += ring.active_vertex_count;
     double input_area = calculate_total_area(polygon);
 
-    // Track Time and Memory for the Presentation screen
+    json orig_vals = json::array();
+    for (const auto& ring : polygon) {
+        if (ring.active_vertex_count < 3) continue;
+        int order = 0;
+        Vertex* curr = ring.head;
+        do {
+            orig_vals.push_back({{"x", curr->x}, {"y", curr->y}, {"ring_id", std::to_string(ring.ring_id)}, {"order", order++}});
+            curr = curr->next;
+        } while (curr != ring.head);
+        orig_vals.push_back({{"x", ring.head->x}, {"y", ring.head->y}, {"ring_id", std::to_string(ring.ring_id)}, {"order", order}});
+    }
+
+    // Processing Phase
     auto start_time = std::chrono::high_resolution_clock::now();
     double total_displacement = simplify_polygon(polygon, target_vertices);
     auto end_time = std::chrono::high_resolution_clock::now();
-    
-    std::chrono::duration<double> diff = end_time - start_time;
-    long mem_kb = get_peak_memory_kb();
+    double algo_time = std::chrono::duration<double>(end_time - start_time).count();
+    long final_mem = get_peak_memory_kb();
 
     int end_v = 0;
     for (const auto& ring : polygon) end_v += ring.active_vertex_count;
     double output_area = calculate_total_area(polygon);
 
-    // Generate the Presentation Dashboard
-    export_presentation_html(polygon, "visualization.html", input_area, output_area, total_displacement, diff.count(), mem_kb, start_v, end_v);
-
-    // Standard CSV Console Output
-    std::cout << "ring_id,vertex_id,x,y\n";
-    int out_ring_id = 0;
+    json simp_vals = json::array();
     for (const auto& ring : polygon) {
         if (ring.active_vertex_count < 3) continue;
-        int out_vertex_id = 0;
+        int order = 0;
         Vertex* curr = ring.head;
         do {
             if (curr->is_active) {
-                std::cout << out_ring_id << "," << out_vertex_id++ << "," << curr->x << "," << curr->y << "\n";
+                simp_vals.push_back({{"x", curr->x}, {"y", curr->y}, {"ring_id", std::to_string(ring.ring_id)}, {"order", order++}});
             }
             curr = curr->next;
         } while (curr != ring.head);
-        out_ring_id++;
+        
+        Vertex* first = ring.head;
+        while (first && !first->is_active && first->next != ring.head) first = first->next;
+        if (first && first->is_active) {
+            simp_vals.push_back({{"x", first->x}, {"y", first->y}, {"ring_id", std::to_string(ring.ring_id)}, {"order", order}});
+        }
+    }
+
+    // Visual & Console Output
+    export_presentation_html(orig_vals, simp_vals, "visualization.html", input_area, output_area, total_displacement, algo_time, final_mem, start_v, end_v, load_time, baseline_mem);
+
+    std::cout << "ring_id,vertex_id,x,y\n";
+    int out_r = 0;
+    for (const auto& ring : polygon) {
+        if (ring.active_vertex_count < 3) continue;
+        int out_v = 0;
+        Vertex* curr = ring.head;
+        do {
+            if (curr->is_active) std::cout << out_r << "," << out_v++ << "," << curr->x << "," << curr->y << "\n";
+            curr = curr->next;
+        } while (curr != ring.head);
+        out_r++;
     }
 
     std::cout << std::scientific << std::setprecision(6);
