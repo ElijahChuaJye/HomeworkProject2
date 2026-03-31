@@ -275,13 +275,14 @@ double simplify_polygon(std::vector<Ring>& polygon, int target_vertices) {
         total_displacement += current_state.displacement;
 
         // Update ring metadata
-        for (auto& ring : polygon) {
-            if (ring.ring_id == current_state.b->ring_id) {
-                ring.active_vertex_count--;
-                if (ring.head == current_state.c) {
-                    ring.head = current_state.b;
-                }
-                break;
+        int r_id = best.b->ring_id;
+        if (r_id >= 0 && r_id < (int)polygon.size()) {
+            Ring& affected_ring = polygon[r_id];
+            affected_ring.active_vertex_count--;
+    
+            // If the head of the ring was removed, point it to the kept vertex B
+            if (affected_ring.head == best.c) {
+                affected_ring.head = best.b; 
             }
         }
 

@@ -5,6 +5,7 @@
 #include <fstream>
 #include "geometry.h"
 #include "apsc.h"
+#include "benchmark.h"
 
 // Include the nlohmann JSON library
 #include "json.hpp" 
@@ -145,6 +146,20 @@ void export_vega_lite_html(const std::vector<Ring>& polygon, const std::string& 
 // ---------------------------------------------------------
 
 int main(int argc, char* argv[]) {
+// --- ADD THIS BENCHMARK INTERCEPT BLOCK ---
+    if (argc == 2 && std::string(argv[1]) == "--benchmark") {
+        std::vector<TestCase> suite = {
+            {"test_cases/input_blob_with_two_holes.csv", "Baseline", "Standard shape validation", 15},
+            // Note: Update these paths to whatever your actual test files are named
+            // {"test_cases/massive_100k.csv", "High vertex count", "Tests asymptotic efficiency", 5000} 
+        };
+
+        BenchmarkSuite runner;
+        runner.run_and_export_html(suite);
+        return 0; // Exit program after generating report
+    }
+    // -------------------------------------------
+
     if (argc != 3) {
         std::cerr << "Usage: ./simplify <input_file.csv> <target_vertices>\n";
         return 1;
