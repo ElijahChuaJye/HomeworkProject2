@@ -146,19 +146,33 @@ void export_vega_lite_html(const std::vector<Ring>& polygon, const std::string& 
 // ---------------------------------------------------------
 
 int main(int argc, char* argv[]) {
-// --- ADD THIS BENCHMARK INTERCEPT BLOCK ---
-    if (argc == 2 && std::string(argv[1]) == "--benchmark") {
-        std::vector<TestCase> suite = {
-            {"test_cases/input_blob_with_two_holes.csv", "Baseline", "Standard shape validation", 15},
-            // Note: Update these paths to whatever your actual test files are named
-            // {"test_cases/massive_100k.csv", "High vertex count", "Tests asymptotic efficiency", 5000} 
-        };
 
-        BenchmarkSuite runner;
-        runner.run_and_export_html(suite);
-        return 0; // Exit program after generating report
-    }
-    // -------------------------------------------
+    if (argc == 2 && std::string(argv[1]) == "--benchmark") {
+    // Rubric-Specific Test Suite
+    std::vector<TestCase> suite = {
+        // (a) & (b): Scaling Tests (High Vertex Count)
+        {"test_cases/city_map_10k.csv", "High Vertex Count", "Tests O(n log n) priority queue and O(1) ring updates.", 5000},
+        {"test_cases/country_map_50k.csv", "High Vertex Count", "Verifies scaling logic as data size increases 5x.", 25000},
+        {"test_cases/continent_100k.csv", "High Vertex Count", "Required by rubric to show competitive time on 100k+ vertices.", 50000},
+
+        // Targeted Property Tests
+        {"test_cases/swiss_cheese.csv", "Large Number of Holes", "Tests spatial grid efficiency with many internal boundaries.", 500},
+        {"test_cases/coastline_jagged.csv", "Narrow Gaps", "Tests if intersection checks prevent rings from touching in thin areas.", 1000},
+        {"test_cases/grid_aligned.csv", "Near-Degeneracies", "Tests floating-point stability with collinear points and zero areas.", 200},
+
+        // (c): Displacement vs. Target (Using one complex file at different levels)
+        {"test_cases/continent_100k.csv", "Displacement Curve", "90% simplification", 90000},
+        {"test_cases/continent_100k.csv", "Displacement Curve", "70% simplification", 70000},
+        {"test_cases/continent_100k.csv", "Displacement Curve", "50% simplification", 50000},
+        {"test_cases/continent_100k.csv", "Displacement Curve", "30% simplification", 30000},
+        {"test_cases/continent_100k.csv", "Displacement Curve", "10% simplification", 10000}
+    };
+
+    BenchmarkSuite runner;
+    runner.run_and_export_html(suite);
+    return 0;
+}
+
 
     if (argc != 3) {
         std::cerr << "Usage: ./simplify <input_file.csv> <target_vertices>\n";

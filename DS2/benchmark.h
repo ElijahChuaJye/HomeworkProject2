@@ -63,7 +63,7 @@ public:
         for (const auto& test : tests) {
             std::cerr << "Processing: " << test.filename << " (Target: " << test.target_vertices << ")..." << std::endl;
             
-            // 1. Load the polygon from the CSV [cite: 78, 82]
+            // 1. Load the polygon from the CSV
             std::vector<Ring> polygon;
             try {
                 polygon = load_polygon_from_csv(test.filename);
@@ -75,7 +75,7 @@ public:
             int initial_v = 0;
             for (const auto& ring : polygon) initial_v += ring.active_vertex_count;
             
-            // 2. Benchmarking the core APSC algorithm [cite: 20, 138]
+            // 2. Benchmarking the core APSC algorithm
             auto start_time = std::chrono::high_resolution_clock::now();
             double displacement = simplify_polygon(polygon, test.target_vertices);
             auto end_time = std::chrono::high_resolution_clock::now();
@@ -83,7 +83,7 @@ public:
             long peak_mem = get_peak_memory_kb();
             std::chrono::duration<double> diff = end_time - start_time;
             
-            // 3. Store results for curve fitting [cite: 184, 185]
+            // 3. Store results for curve fitting
             n_vals.push_back(initial_v);
             times.push_back(diff.count());
             mems.push_back((double)peak_mem);
@@ -99,13 +99,13 @@ public:
                 {"displacement", displacement}
             });
             
-            // Cleanup to maintain accurate peak memory per test [cite: 22, 170]
+            // Cleanup to maintain accurate peak memory per test
             for (auto& ring : polygon) ring.cleanup();
         }
 
         if (n_vals.empty()) return;
 
-        // 4. Perform Asymptotic Reasoning (Fitting) [cite: 28, 185]
+        // 4. Perform Asymptotic Reasoning (Fitting)
         double c_time = fit_n_log_n(n_vals, times);
         double c_mem = fit_linear(n_vals, mems);
         
@@ -119,7 +119,7 @@ public:
             });
         }
 
-        // 5. Generate the Rubric-compliant HTML Report [cite: 181, 184]
+        // 5. Generate the Rubric-compliant HTML Report
         std::ofstream file("benchmark_report.html");
         if (file.is_open()) {
             file << R"HTML(<!DOCTYPE html>
@@ -130,80 +130,94 @@ public:
   <script src="https://cdn.jsdelivr.net/npm/vega-lite@5.15.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/vega-embed@6.22.2"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 40px; background-color: #f9f9f9; }
-    .chart { display: inline-block; width: 45%; margin: 20px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
-    th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
-    th { background-color: #333; color: white; }
-    tr:nth-child(even) { background-color: #f2f2f2; }
-    h1 { color: #2c3e50; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background-color: #f4f7f6; color: #333; }
+    .container { max-width: 1200px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    .chart { display: inline-block; width: 48%; margin: 10px 0; }
+    .full-chart { width: 100%; margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    th { background-color: #2c3e50; color: white; }
+    .interpretation { background: #e8f4f8; padding: 20px; border-left: 5px solid #2980b9; margin-top: 30px; }
+    h1, h2 { color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
   </style>
 </head>
 <body>
-  <h1>Algorithm Evaluation Report (CSD2183 Project 2)</h1>
-  <p><strong>Time Complexity Fit:</strong> $y \approx )HTML" << c_time << R"HTML( \cdot (n \log_2 n)$</p>
-  <p><strong>Space Complexity Fit:</strong> $y \approx )HTML" << c_mem << R"HTML( \cdot n$</p>
+<div class="container">
+  <h1>APSC Experimental Evaluation Dashboard</h1>
   
+  <div class="interpretation">
+    <h2>1. Asymptotic Scaling Analysis</h2>
+    <p><strong>Time Complexity Fit:</strong> $y \approx )HTML" << c_time << R"HTML( \cdot (n \log_2 n)$</p>
+    <p><strong>Space Complexity Fit:</strong> $y \approx )HTML" << c_mem << R"HTML( \cdot n$</p>
+    <p><em>Interpretation:</em> If data points align with the line, your Priority Queue and Spatial Index are maintaining proper overhead.</p>
+  </div>
+
   <div id="time_chart" class="chart"></div>
   <div id="mem_chart" class="chart"></div>
-  <div id="disp_chart" class="chart" style="width: 93%;"></div>
+  <div id="disp_chart" class="full-chart"></div>
   
-  <h2>Experimental Results Table</h2>
-  <table id="data_table">
+  <h2>2. Test Dataset Performance Table</h2>
+  <table>
     <thead>
-      <tr><th>File</th><th>Property</th><th>Challenge</th><th>Vertices (n)</th><th>Time (s)</th><th>Peak Mem (KB)</th><th>Areal Displacement</th></tr>
+      <tr><th>Property Targeted</th><th>Challenge Description</th><th>Vertices (n)</th><th>Time (s)</th><th>Peak Mem (KB)</th><th>Areal Displacement</th></tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="data_table_body"></tbody>
   </table>
+
+  <div class="interpretation">
+    <h2>3. Discussion of Results</h2>
+    <ul>
+      <li><strong>Property Targeting:</strong> These datasets target specific geometric challenges like holes or narrow corridors.</li>
+      <li><strong>Scaling:</strong> Running time scales with input size based on the $O(n \log n)$ complexity of the APSC algorithm.</li>
+      <li><strong>Trade-offs:</strong> Lowering the target vertex count results in higher areal displacement.</li>
+    </ul>
+  </div>
 
   <script>
     const realData = )HTML" << data_values.dump() << R"HTML(;
     const fitData = )HTML" << fit_values.dump() << R"HTML(;
     
-    const tableBody = document.querySelector("#data_table tbody");
+    const tbody = document.getElementById("data_table_body");
     realData.forEach(d => {
-        let row = tableBody.insertRow();
-        row.innerHTML = `<td>${d.file}</td><td>${d.property}</td><td>${d.challenge}</td>
-                         <td>${d.n}</td><td>${d.time.toFixed(5)}</td>
-                         <td>${d.memory}</td><td>${d.displacement.toExponential(4)}</td>`;
+        let row = tbody.insertRow();
+        row.innerHTML = `<td><b>${d.property}</b></td><td>${d.challenge}</td><td>${d.n}</td>
+                         <td>${d.time.toFixed(4)}</td><td>${d.memory}</td><td>${d.displacement.toExponential(4)}</td>`;
     });
 
     vegaEmbed('#time_chart', {
       "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-      "title": "(a) Running Time vs Input Size",
+      "title": "Running Time Scaling",
       "layer": [
-        {"data": {"values": realData}, "mark": {"type": "point", "filled": true, "size": 100}, "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "time", "type": "quantitative", "title": "Time (seconds)"}, "tooltip": [{"field": "file", "type": "nominal"}, {"field": "challenge", "type": "nominal"}]}},
-        {"data": {"values": fitData}, "mark": {"type": "line", "color": "#e74c3c"}, "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "ideal_time", "type": "quantitative"}}}
+        {"data": {"values": realData}, "mark": "point", "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "time", "type": "quantitative"}}},
+        {"data": {"values": fitData}, "mark": {"type": "line", "color": "red"}, "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "ideal_time", "type": "quantitative"}}}
       ]
     });
 
     vegaEmbed('#mem_chart', {
       "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-      "title": "(b) Peak Memory vs Input Size",
+      "title": "Memory Usage Scaling",
       "layer": [
-        {"data": {"values": realData}, "mark": {"type": "point", "filled": true, "size": 100}, "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "memory", "type": "quantitative", "title": "Memory (KB)"}, "tooltip": [{"field": "file", "type": "nominal"}]}},
-        {"data": {"values": fitData}, "mark": {"type": "line", "color": "#f39c12"}, "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "ideal_memory", "type": "quantitative"}}}
+        {"data": {"values": realData}, "mark": "point", "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "memory", "type": "quantitative"}}},
+        {"data": {"values": fitData}, "mark": {"type": "line", "color": "orange"}, "encoding": {"x": {"field": "n", "type": "quantitative"}, "y": {"field": "ideal_memory", "type": "quantitative"}}}
       ]
     });
 
     vegaEmbed('#disp_chart', {
       "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-      "title": "(c) Areal Displacement vs Target Vertices",
-      "data": {"values": realData},
+      "title": "Areal Displacement vs Target Vertex Count",
+      "data": {"values": realData.filter(d => d.property === "Displacement Curve")},
       "mark": {"type": "line", "point": true},
       "encoding": {
-        "x": {"field": "target", "type": "quantitative", "title": "Target Vertex Count"},
-        "y": {"field": "displacement", "type": "quantitative", "title": "Areal Displacement"},
+        "x": {"field": "target", "type": "quantitative", "sort": "descending"},
+        "y": {"field": "displacement", "type": "quantitative"},
         "color": {"field": "file", "type": "nominal"}
       }
     });
   </script>
+</div>
 </body>
 </html>)HTML";
             file.close();
-            std::cerr << "\n[SUCCESS] Benchmark Report Generated: benchmark_report.html\n" << std::endl;
-        } else {
-            std::cerr << "[ERROR] Could not write to benchmark_report.html" << std::endl;
         }
     }
 };
