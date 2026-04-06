@@ -11,3 +11,6 @@ Usage:
 e.g. (./simplify test_cases/test_spiky_star.csv 30)
 
 ./simplify --benchmark
+
+Third Party Libraries:
+nlohmann/json
