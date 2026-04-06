@@ -1,6 +1,11 @@
 # Data_Structures 
-Data structure homework
+Data structure homework 2
 
-For imgui:
-Type this into the git command prompt: git https://git.com/ocornut/imgui.git 
-*DELETE .GIT AND .GITHUB WHICH IS INSIDE THE IMGUI FOLDER*
+How to Compile code:
+1. Open WSL
+2. call make
+
+Usage:
+./simplify <input_file.csv> <target_vertices>
+e.g. (./simplify test_cases/test_spiky_star.csv 30)
+./simplify --benchmark
