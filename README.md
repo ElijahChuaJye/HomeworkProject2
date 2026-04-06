@@ -6,6 +6,8 @@ How to Compile code:
 2. call make
 
 Usage:
+
 ./simplify <input_file.csv> <target_vertices>
 e.g. (./simplify test_cases/test_spiky_star.csv 30)
+
 ./simplify --benchmark
