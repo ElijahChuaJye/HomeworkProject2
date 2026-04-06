@@ -14,4 +14,5 @@ e.g. (./simplify test_cases/test_spiky_star.csv 30)
 
 Third Party Libraries:
 nlohmann/json
-vega-lite
+
+Vega, Vega-Lite, & Vega-Embed
