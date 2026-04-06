@@ -41,6 +41,13 @@ CollapseCandidate evaluate_collapse(Vertex* a, Vertex* b, Vertex* c, Vertex* d) 
         t = area_BCD / denominator;
     }
 
+    // If E is placed absurdly far outside the B-C segment, reject it instantly.
+    if (t < -5.0 || t > 6.0) {
+        cand.displacement = std::numeric_limits<double>::infinity();
+        cand.score = std::numeric_limits<double>::infinity();
+        return cand;
+    }
+
     cand.e_x = b->x + t * (c->x - b->x);
     cand.e_y = b->y + t * (c->y - b->y);
 
@@ -240,11 +247,10 @@ double simplify_polygon(std::vector<Ring>& polygon, int target_vertices) {
         pq.erase(it);
 
         // Lazy Deletion 1: Sequence Broken Check
-        if (!best.b->is_active || !best.c->is_active ||
-            best.a->next != best.b || best.b->next != best.c || best.c->next != best.d) {
+       if (!best.b->is_active || !best.c->is_active ||
+            best.b->prev != best.a || best.c->next != best.d) {
             continue;
         }
-
         // Lazy Deletion 2: Stale Data Check 
         CollapseCandidate current_state = evaluate_collapse(best.a, best.b, best.c, best.d);
 

@@ -301,6 +301,12 @@ int main(int argc, char* argv[]) {
     std::cout << "Total signed area in output: " << output_area << "\n";
     std::cout << "Total area displacement: " << total_displacement << "\n";
 
+       if (target_vertices >= start_v) {
+        std::cerr << "Warning: Target vertices (" << target_vertices 
+                  << ") is greater than or equal to input vertices (" 
+                  << start_v << "). No simplification will be performed.\n";
+    }
+
     for (auto& ring : polygon) ring.cleanup();
     return 0;
 }
